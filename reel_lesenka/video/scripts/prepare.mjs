@@ -7,17 +7,18 @@ import {fileURLToPath} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const video = path.resolve(here, '..');
-// PART=2 — вторая часть (папка ../part2, свои голос, транскрипт и таймлайн)
-const PART = process.env.PART === '2' ? '2' : '';
+// PART=2 — вторая часть (папка ../part2), PART=lesson — ролик про подготовку урока (../../lesson_prep).
+// У каждого свои голос, транскрипт и таймлайн.
+const PART = ['2', 'lesson'].includes(process.env.PART) ? process.env.PART : '';
 const reelRoot = path.resolve(video, '..');
-const root = PART ? path.join(reelRoot, 'part2') : reelRoot;
+const root = {'': reelRoot, 2: path.join(reelRoot, 'part2'), lesson: path.resolve(reelRoot, '..', 'lesson_prep')}[PART];
 const AUDIO = `audio${PART}`;
 
 const scenesCfg = JSON.parse(fs.readFileSync(path.join(root, 'scenes.json'), 'utf8'));
 const scriptMd = fs.readFileSync(path.join(root, 'script.md'), 'utf8');
 
 // Синхронизируем ассеты (картинки, голос) в public/
-for (const [dir, to] of [['images', 'images'], ['audio', AUDIO]]) {
+for (const [dir, to] of [['images', 'images'], ['audio', AUDIO], ['screencasts', 'lesson']]) {
   const src = path.join(root, 'assets', dir);
   if (!fs.existsSync(src)) continue;
   const dst = path.join(video, 'public', to);

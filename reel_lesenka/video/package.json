@@ -8,7 +8,9 @@
     "final:no-subs": "node scripts/render.mjs final --no-subs",
     "draft2": "node scripts/render.mjs draft --part 2",
     "final2": "node scripts/render.mjs final --part 2",
-    "final2:no-subs": "node scripts/render.mjs final --part 2 --no-subs"
+    "final2:no-subs": "node scripts/render.mjs final --part 2 --no-subs",
+    "draft-lesson": "node scripts/render.mjs draft --part lesson",
+    "final-lesson": "node scripts/render.mjs final --part lesson"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.532",
