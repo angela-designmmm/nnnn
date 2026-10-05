@@ -37,3 +37,7 @@ export const CX = (SAFE.left + SAFE.right) / 2; // центр безопасно
 // Где на скриншоте подписчицы сам вопрос (доли ширины/высоты картинки) — для обводки маркером.
 // Подстроить, когда появится subscriber_question.png.
 export const QUESTION_OVAL = {cx: 0.45, cy: 0.48, rx: 0.38, ry: 0.25};
+
+// Скриншот шапки профиля (S13): пропорции и где строка «Анкета записи на Speaking Club» + ссылка
+export const PROFILE_ASPECT = 1290 / 824;
+export const PROFILE_OVAL = {cx: 0.31, cy: 0.808, rx: 0.33, ry: 0.06};

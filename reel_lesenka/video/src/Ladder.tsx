@@ -15,13 +15,14 @@ const chipCX = (lvl: number) => (lvl < 0 ? L.footX : stepX(lvl) + colW / 2);
 const chipBottom = (lvl: number) => (lvl < 0 ? L.base : treadY(lvl));
 
 const STEP_NAMES = ['узнаю', 'вспоминаю значение', 'нахожу слово', 'вспоминаю с подсказкой', 'говорю свободно'];
-const LESSON_TAGS = ['знакомство и перевод', 'задания на выбор', 'домашка', 'вспомнить по подсказке', 'разговор'];
 
 // Ключевые моменты
 const T = () => {
-  const build = wt('S04', 'ступенькам');
+  const build = scene('S04').start + 0.45; // сразу после скриншота вопроса
   const s12 = scene('S12');
-  const hops = [0, 1, 2].map((k) => wt('S12', 'хоп', k));
+  // прыжки не чаще, чем раз в 0.42 с (иначе дуги наезжают друг на друга)
+  const hops: number[] = [];
+  [0, 1, 2].forEach((k) => hops.push(Math.max(wt('S12', 'хоп', k), k ? hops[k - 1] + 0.42 : 0)));
   return {
     build,
     chipIn: build + 5 * 0.12 + 0.35,
@@ -43,7 +44,6 @@ const T = () => {
     s10end: scene('S10').end,
     s11: scene('S11').start,
     s12: s12.start,
-    tags: [wt('S12', 'знакомимся'), wt('S12', 'выбор'), wt('S12', 'домашка'), wt('S12', 'подсказке'), wt('S12', 'говорит')],
     s13: scene('S13').start,
     oval9: wt('S09', 'говорю') + 0.45,
   };
@@ -175,37 +175,6 @@ export const Ladder: React.FC<{t: number}> = ({t}) => {
             <div style={{fontFamily: SANS, fontWeight: isCur ? 600 : 500, fontSize: 34, lineHeight: 1.1, paddingBottom: 6, whiteSpace: i === 0 ? 'nowrap' : 'normal'}}>
               <span style={{fontFamily: 'inherit', color: C.sky, fontWeight: 600}}>{i + 1}</span> {STEP_NAMES[i]}
             </div>
-          </div>
-        );
-      })}
-
-      {/* Стикеры этапов урока (S12) — на лицевой стороне ступенек */}
-      {LESSON_TAGS.map((tag, i) => {
-        const a = sp(t, k.tags[i], {damping: 15}) * detail;
-        if (a <= 0.001 || t < k.s12) return null;
-        return (
-          <div
-            key={tag}
-            style={{
-              position: 'absolute',
-              left: stepX(i) - 14,
-              width: colW + 28,
-              top: treadY(i) + 22,
-              background: C.marker,
-              borderRadius: 6,
-              padding: '10px 8px',
-              fontFamily: SANS,
-              fontWeight: 600,
-              fontSize: 27,
-              lineHeight: 1.12,
-              color: C.ink,
-              textAlign: 'center',
-              boxShadow: '0 6px 14px rgba(30,42,68,0.18)',
-              transform: `rotate(${i % 2 ? 2.5 : -2.5}deg) scale(${0.85 + 0.15 * a})`,
-              opacity: Math.min(1, a * 1.5),
-            }}
-          >
-            {tag}
           </div>
         );
       })}

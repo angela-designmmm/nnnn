@@ -1,7 +1,7 @@
 import React from 'react';
 import {Img, interpolate, staticFile} from 'remotion';
-import {Check, HandArrow, HandOval, Layer} from './common';
-import {C, CX, QUESTION_OVAL, SANS, SERIF, SOURCE_LAUFER} from './theme';
+import {Check, HandOval, Layer} from './common';
+import {C, CX, PROFILE_ASPECT, PROFILE_OVAL, QUESTION_OVAL, SANS, SERIF, SOURCE_LAUFER} from './theme';
 import {easeOut, prog, scene, sp, tl, vis, wt} from './time';
 
 const shot: React.CSSProperties = {
@@ -414,7 +414,7 @@ export const Nakata: React.FC<{t: number}> = ({t}) => {
   );
 };
 
-// ── S13: разговорный клуб ───────────────────────────────────────────────────
+// ── S13: разговорный клуб, затем скриншот шапки профиля ─────────────────────
 export const Club: React.FC<{t: number}> = ({t}) => {
   const s = scene('S13');
   if (t < s.start || t > scene('S14').start + 0.6) return null;
@@ -422,32 +422,31 @@ export const Club: React.FC<{t: number}> = ({t}) => {
   const c1 = sp(t, wt('S13', 'клубе') - 0.2, {damping: 18});
   const c2 = sp(t, wt('S13', 'выходные') - 0.2, {damping: 18});
   const head = wt('S13', 'шапке');
-  const lab = prog(t, head + 0.1, 0.35);
+  const cardsOut = prog(t, head - 0.35, 0.35);
+  const shotIn = sp(t, head - 0.15, {damping: 20, stiffness: 120});
+  const lab = prog(t, head + 0.5, 0.35);
   const card = (a: number, top: number, l1: string, l2: string | null) =>
     a > 0.001 && (
-      <div style={{...panelBox, left: 100, width: 720, top, padding: '30px 40px', opacity: Math.min(1, a * 1.3), transform: `translateY(${(1 - a) * 30}px)`}}>
+      <div style={{...panelBox, left: 100, width: 720, top, padding: '30px 40px', opacity: Math.min(1, a * 1.3) * (1 - cardsOut), transform: `translateY(${(1 - a) * 30 - cardsOut * 40}px)`}}>
         <div style={{fontSize: 52, fontWeight: 600, lineHeight: 1.15}}>{l1}</div>
         {l2 && <div style={{fontSize: 42, fontWeight: 500, color: C.sky, marginTop: 8}}>{l2}</div>}
       </div>
     );
+  const W = 860;
+  const H = W / PROFILE_ASPECT;
+  const left = CX - W / 2;
+  const top = 580;
   return (
     <Layer opacity={out}>
-      {card(c1, 610, 'Разговорный клуб', 'по методике пяти ступенек')}
-      {card(c2, 850, 'каждые выходные', null)}
-      <div style={{position: 'absolute', left: 100, width: 660, top: 1150, textAlign: 'center', fontFamily: SANS, fontWeight: 600, fontSize: 44, color: C.ink, opacity: lab}}>анкета в шапке профиля</div>
-      <HandArrow
-        pts={[
-          [770, 1180],
-          [860, 1130],
-          [895, 960],
-          [892, 700],
-          [880, 470],
-          [870, 260],
-        ]}
-        t={t}
-        start={head}
-        dur={0.6}
-      />
+      {cardsOut < 1 && card(c1, 610, 'Разговорный клуб', 'по методике пяти ступенек')}
+      {cardsOut < 1 && card(c2, 850, 'каждые выходные', null)}
+      {shotIn > 0.001 && (
+        <div style={{position: 'absolute', inset: 0, opacity: Math.min(1, shotIn * 1.5), transform: `translateY(${(1 - shotIn) * 500}px)`}}>
+          <Img src={staticFile('images/profile_header.png')} style={{...shot, left, top, width: W, height: H, borderRadius: 28}} />
+          <HandOval cx={left + W * PROFILE_OVAL.cx} cy={top + H * PROFILE_OVAL.cy} rx={W * PROFILE_OVAL.rx} ry={H * PROFILE_OVAL.ry} t={t} start={head + 0.45} seed={13} />
+        </div>
+      )}
+      <div style={{position: 'absolute', left: 60, width: 880, top: top + H + 40, textAlign: 'center', fontFamily: SANS, fontWeight: 600, fontSize: 48, color: C.ink, opacity: lab}}>анкета в шапке профиля</div>
     </Layer>
   );
 };
