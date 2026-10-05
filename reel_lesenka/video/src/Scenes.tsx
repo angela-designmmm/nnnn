@@ -419,17 +419,17 @@ export const Club: React.FC<{t: number}> = ({t}) => {
   const s = scene('S13');
   if (t < s.start || t > scene('S14').start + 0.6) return null;
   const out = 1 - prog(t, scene('S14').start, 0.45);
-  const c1 = sp(t, wt('S13', 'клубе') - 0.2, {damping: 18});
-  const c2 = sp(t, wt('S13', 'выходные') - 0.2, {damping: 18});
+  const c1 = sp(t, wt('S13', 'группах') - 0.2, {damping: 18});
+  const c2 = sp(t, wt('S13', 'клубе') - 0.2, {damping: 18});
   const head = wt('S13', 'шапке');
   const cardsOut = prog(t, head - 0.35, 0.35);
   const shotIn = sp(t, head - 0.15, {damping: 20, stiffness: 120});
   const lab = prog(t, head + 0.5, 0.35);
   const card = (a: number, top: number, l1: string, l2: string | null) =>
     a > 0.001 && (
-      <div style={{...panelBox, left: 100, width: 720, top, padding: '30px 40px', opacity: Math.min(1, a * 1.3) * (1 - cardsOut), transform: `translateY(${(1 - a) * 30 - cardsOut * 40}px)`}}>
-        <div style={{fontSize: 52, fontWeight: 600, lineHeight: 1.15}}>{l1}</div>
-        {l2 && <div style={{fontSize: 42, fontWeight: 500, color: C.sky, marginTop: 8}}>{l2}</div>}
+      <div style={{...panelBox, left: 80, width: 820, top, padding: '30px 40px', opacity: Math.min(1, a * 1.3) * (1 - cardsOut), transform: `translateY(${(1 - a) * 30 - cardsOut * 40}px)`}}>
+        <div style={{fontSize: 50, fontWeight: 600, lineHeight: 1.15, whiteSpace: 'nowrap'}}>{l1}</div>
+        {l2 && <div style={{whiteSpace: 'pre-line', fontSize: 40, fontWeight: 500, color: C.sky, marginTop: 8}}>{l2}</div>}
       </div>
     );
   const W = 860;
@@ -438,8 +438,8 @@ export const Club: React.FC<{t: number}> = ({t}) => {
   const top = 580;
   return (
     <Layer opacity={out}>
-      {cardsOut < 1 && card(c1, 610, 'Разговорный клуб', 'по методике пяти ступенек')}
-      {cardsOut < 1 && card(c2, 850, 'каждые выходные', null)}
+      {cardsOut < 1 && card(c1, 610, 'Индивидуально и в группах', 'по методике пяти ступенек')}
+      {cardsOut < 1 && card(c2, 830, 'Разговорный клуб', 'знакомство с подходом,\nкаждые выходные')}
       {shotIn > 0.001 && (
         <div style={{position: 'absolute', inset: 0, opacity: Math.min(1, shotIn * 1.5), transform: `translateY(${(1 - shotIn) * 500}px)`}}>
           <Img src={staticFile('images/profile_header.png')} style={{...shot, left, top, width: W, height: H, borderRadius: 28}} />
