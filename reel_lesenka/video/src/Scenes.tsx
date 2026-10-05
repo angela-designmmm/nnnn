@@ -1,7 +1,7 @@
 import React from 'react';
 import {Img, interpolate, staticFile} from 'remotion';
 import {Check, HandArrow, HandOval, Layer} from './common';
-import {C, CX, QUESTION_OVAL, SANS, SERIF, SOURCE_LAUFER, SOURCE_NAKATA} from './theme';
+import {C, CX, QUESTION_OVAL, SANS, SERIF, SOURCE_LAUFER} from './theme';
 import {easeOut, prog, scene, sp, tl, vis, wt} from './time';
 
 const shot: React.CSSProperties = {
@@ -293,6 +293,7 @@ export const Apps: React.FC<{t: number}> = ({t}) => {
 };
 
 // ── S13: Наката и повторения ────────────────────────────────────────────────
+// Для второго видео (повторение): сейчас не используется, сцены S13/S14 в этом ролике другие.
 export const Nakata: React.FC<{t: number}> = ({t}) => {
   const s = scene('S13');
   const o = vis(t, s.start + 0.4, s.end, 0.5, 0.35);
@@ -413,35 +414,26 @@ export const Nakata: React.FC<{t: number}> = ({t}) => {
   );
 };
 
-// ── S14: призыв ─────────────────────────────────────────────────────────────
-export const Cta: React.FC<{t: number}> = ({t}) => {
-  const s = scene('S14');
-  if (t < s.start) return null;
-  const c1 = sp(t, wt('S14', 'пишите') - 0.1, {damping: 18});
-  const c2 = sp(t, wt('S14', 'клубе') - 0.35, {damping: 18});
-  const head = wt('S14', 'шапке');
-  const card = (a: number, top: number, l1: string, l2: string) =>
+// ── S13: разговорный клуб ───────────────────────────────────────────────────
+export const Club: React.FC<{t: number}> = ({t}) => {
+  const s = scene('S13');
+  if (t < s.start || t > scene('S14').start + 0.6) return null;
+  const out = 1 - prog(t, scene('S14').start, 0.45);
+  const c1 = sp(t, wt('S13', 'клубе') - 0.2, {damping: 18});
+  const c2 = sp(t, wt('S13', 'выходные') - 0.2, {damping: 18});
+  const head = wt('S13', 'шапке');
+  const lab = prog(t, head + 0.1, 0.35);
+  const card = (a: number, top: number, l1: string, l2: string | null) =>
     a > 0.001 && (
-      <div
-        style={{
-          ...panelBox,
-          left: 100,
-          width: 760,
-          top,
-          padding: '30px 40px',
-          opacity: Math.min(1, a * 1.3),
-          transform: `translateY(${(1 - a) * 30}px)`,
-        }}
-      >
-        <div style={{fontSize: 46, fontWeight: 600, lineHeight: 1.15, whiteSpace: 'nowrap'}}>{l1}</div>
-        <div style={{fontSize: 42, fontWeight: 500, color: C.sky, marginTop: 8}}>{l2}</div>
+      <div style={{...panelBox, left: 100, width: 720, top, padding: '30px 40px', opacity: Math.min(1, a * 1.3), transform: `translateY(${(1 - a) * 30}px)`}}>
+        <div style={{fontSize: 52, fontWeight: 600, lineHeight: 1.15}}>{l1}</div>
+        {l2 && <div style={{fontSize: 42, fontWeight: 500, color: C.sky, marginTop: 8}}>{l2}</div>}
       </div>
     );
-  const lab = prog(t, head + 0.1, 0.35);
   return (
-    <>
-      {card(c1, 600, 'Индивидуально и в группах', 'пишите в личку')}
-      {card(c2, 830, 'Разговорный клуб', 'каждые выходные')}
+    <Layer opacity={out}>
+      {card(c1, 610, 'Разговорный клуб', 'по методике пяти ступенек')}
+      {card(c2, 850, 'каждые выходные', null)}
       <div style={{position: 'absolute', left: 100, width: 660, top: 1150, textAlign: 'center', fontFamily: SANS, fontWeight: 600, fontSize: 44, color: C.ink, opacity: lab}}>анкета в шапке профиля</div>
       <HandArrow
         pts={[
@@ -456,7 +448,43 @@ export const Cta: React.FC<{t: number}> = ({t}) => {
         start={head}
         dur={0.6}
       />
-    </>
+    </Layer>
+  );
+};
+
+// ── S14: анонс второго видео — кривая забывания ─────────────────────────────
+export const Teaser: React.FC<{t: number}> = ({t}) => {
+  const s = scene('S14');
+  if (t < s.start) return null;
+  const curveP = prog(t, wt('S14', 'кривая') - 0.1, 0.9);
+  const next = sp(t, wt('S14', 'следующем') - 0.2, {damping: 18});
+  // кривая забывания: резкое падение и плато
+  const X0 = 140;
+  const X1 = 860;
+  const Y0 = 640;
+  const Y1 = 960;
+  const pts = Array.from({length: 41}, (_, i) => {
+    const k = i / 40;
+    const y = Y0 + (Y1 - Y0) * (1 - (0.22 + 0.78 * Math.exp(-k * 5)));
+    return `${i ? 'L' : 'M'} ${(X0 + (X1 - X0) * k).toFixed(1)} ${y.toFixed(1)}`;
+  }).join(' ');
+  return (
+    <Layer opacity={prog(t, s.start + 0.2, 0.4)}>
+      <svg width={1080} height={1920} style={{position: 'absolute', inset: 0}}>
+        <line x1={X0} y1={Y1 + 10} x2={X1} y2={Y1 + 10} stroke={C.mist} strokeWidth={4} strokeLinecap="round" />
+        <line x1={X0} y1={Y0 - 30} x2={X0} y2={Y1 + 10} stroke={C.mist} strokeWidth={4} strokeLinecap="round" />
+        {curveP > 0 && <path d={pts} fill="none" stroke={C.sky} strokeWidth={8} strokeLinecap="round" strokeLinejoin="round" pathLength={1} strokeDasharray={1} strokeDashoffset={1 - curveP} />}
+      </svg>
+      <div style={{position: 'absolute', left: X0 + 260, top: Y0 + 20, fontFamily: SANS, fontWeight: 600, fontSize: 40, color: C.sky, opacity: prog(t, wt('S14', 'кривая') + 0.5, 0.4)}}>кривая забывания</div>
+      <div style={{position: 'absolute', left: X0 + 10, top: Y0 - 34, fontFamily: SANS, fontWeight: 500, fontSize: 30, color: C.sky, opacity: curveP}}>помню</div>
+      <div style={{position: 'absolute', left: X1 - 120, top: Y1 + 26, fontFamily: SANS, fontWeight: 500, fontSize: 30, color: C.sky, opacity: curveP}}>время →</div>
+      {next > 0.001 && (
+        <div style={{position: 'absolute', left: 60, width: 880, top: 1040, textAlign: 'center', opacity: Math.min(1, next * 1.3), transform: `translateY(${(1 - next) * 24}px)`}}>
+          <div style={{fontFamily: SERIF, fontSize: 104, lineHeight: 1.05, color: C.ink}}>Часть 2</div>
+          <div style={{fontFamily: SANS, fontWeight: 600, fontSize: 46, color: C.ink, marginTop: 14}}>повторение новых слов</div>
+        </div>
+      )}
+    </Layer>
   );
 };
 
@@ -464,7 +492,6 @@ export const Cta: React.FC<{t: number}> = ({t}) => {
 export const Sources: React.FC<{t: number}> = ({t}) => {
   const items: [string, string][] = [
     ['S10', SOURCE_LAUFER],
-    ['S13', SOURCE_NAKATA],
   ];
   return (
     <>

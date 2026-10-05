@@ -45,8 +45,6 @@ const T = () => {
     s12: s12.start,
     tags: [wt('S12', 'знакомимся'), wt('S12', 'выбор'), wt('S12', 'домашка'), wt('S12', 'подсказке'), wt('S12', 'говорит')],
     s13: scene('S13').start,
-    out13: wt('S13', 'пяти') - 0.2,
-    s14: scene('S14').start,
     oval9: wt('S09', 'говорю') + 0.45,
   };
 };
@@ -85,11 +83,10 @@ export const Ladder: React.FC<{t: number}> = ({t}) => {
   const k = T();
   if (t < k.build) return null;
 
-  // В S13 лесенка уезжает вверх и уменьшается, на «пяти» исчезает; в S14 возвращается маленькой
+  // С S13 лесенка уезжает вверх, уменьшается и остаётся там до конца
   const shrinkP = prog(t, k.s13 + 0.1, 0.8);
   const small = t >= k.s13;
-  const opacity = t < k.s14 ? 1 - prog(t, k.out13, 0.45) : prog(t, k.s14 + 0.1, 0.5);
-  if (opacity <= 0) return null;
+  const opacity = 1;
   const sc = interpolate(shrinkP, [0, 1], [1, 0.34]);
   // центр рамки лесенки (x 60..940, y 520..1330) → верх кадра
   const bx = 500;
