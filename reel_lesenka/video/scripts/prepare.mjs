@@ -7,16 +7,20 @@ import {fileURLToPath} from 'node:url';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const video = path.resolve(here, '..');
-const root = path.resolve(video, '..');
+// PART=2 — вторая часть (папка ../part2, свои голос, транскрипт и таймлайн)
+const PART = process.env.PART === '2' ? '2' : '';
+const reelRoot = path.resolve(video, '..');
+const root = PART ? path.join(reelRoot, 'part2') : reelRoot;
+const AUDIO = `audio${PART}`;
 
 const scenesCfg = JSON.parse(fs.readFileSync(path.join(root, 'scenes.json'), 'utf8'));
 const scriptMd = fs.readFileSync(path.join(root, 'script.md'), 'utf8');
 
 // Синхронизируем ассеты (картинки, голос) в public/
-for (const dir of ['images', 'audio']) {
+for (const [dir, to] of [['images', 'images'], ['audio', AUDIO]]) {
   const src = path.join(root, 'assets', dir);
   if (!fs.existsSync(src)) continue;
-  const dst = path.join(video, 'public', dir);
+  const dst = path.join(video, 'public', to);
   fs.mkdirSync(dst, {recursive: true});
   for (const f of fs.readdirSync(src)) fs.copyFileSync(path.join(src, f), path.join(dst, f));
 }
@@ -29,10 +33,10 @@ if (hasQuestion) {
   const b = fs.readFileSync(path.join(video, 'public', 'images', 'subscriber_question.png'));
   questionAspect = b.readUInt32BE(16) / b.readUInt32BE(20);
 }
-const voiceFile = ['audio/voiceover_clean.wav'].find(exists) ?? null;
-const transcriptPath = path.join(video, 'public', 'transcript.json');
+const voiceFile = [`${AUDIO}/voiceover_clean.wav`].find(exists) ?? null;
+const transcriptPath = path.join(video, 'public', `transcript${PART}.json`);
 const hasTranscript = fs.existsSync(transcriptPath) && voiceFile;
-const musicFile = ['audio/music.m4a', 'audio/music.mp3', 'audio/music.wav'].find(exists) ?? null;
+const musicFile = ['m4a', 'mp3', 'wav'].map((e) => `${AUDIO}/music.${e}`).find(exists) ?? null;
 
 // Текст сцен из script.md — источник правды для субтитров
 const sceneText = {};
@@ -191,7 +195,7 @@ const out = {
   notes,
 };
 fs.mkdirSync(path.join(video, 'src', 'generated'), {recursive: true});
-fs.writeFileSync(path.join(video, 'src', 'generated', 'timeline.json'), JSON.stringify(out, null, 1));
+fs.writeFileSync(path.join(video, 'src', 'generated', `timeline${PART}.json`), JSON.stringify(out, null, 1));
 console.log(`timeline: ${out.mode}, ${out.duration.toFixed(2)} с, ${scenes.length} сцен, ${subtitles.length} кусков субтитров`);
-if (!hasQuestion) console.log('ВНИМАНИЕ: нет assets/images/subscriber_question.png — в кадре S03 заглушка');
+if (!hasQuestion && !PART) console.log('ВНИМАНИЕ: нет assets/images/subscriber_question.png — в кадре S03 заглушка');
 for (const n of notes) console.log('ВНИМАНИЕ:', n);

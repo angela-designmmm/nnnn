@@ -1,9 +1,9 @@
 import React from 'react';
 import {C, CX, SANS} from './theme';
-import {tl} from './time';
+import {Timeline, tl as tl1} from './time';
 
 // Субтитры: нижняя граница y = 1480, подложка paper 90 %, текущее слово — маркер снизу
-export const Subtitles: React.FC<{t: number}> = ({t}) => {
+export const Subtitles: React.FC<{t: number; tl?: Timeline}> = ({t, tl = tl1}) => {
   const cur = tl.subtitles.find((s) => t >= s.start && t < s.end);
   if (!cur) return null;
   return (

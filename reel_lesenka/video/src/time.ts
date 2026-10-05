@@ -15,25 +15,31 @@ export type Timeline = {
   subtitles: {start: number; end: number; words: {text: string; start: number; end: number}[]}[];
 };
 
-export const tl = timeline as Timeline;
-
 const norm = (w: string) => w.toLowerCase().replace(/ё/g, 'е').replace(/[^a-zа-я0-9]/g, '');
 
-export const scene = (id: string) => {
-  const s = tl.scenes.find((x) => x.id === id);
-  if (!s) throw new Error(`Нет сцены ${id}`);
-  return s;
+// Помощники времени для конкретного таймлайна (часть 1 или часть 2)
+export const makeTime = (tl: Timeline) => {
+  const scene = (id: string) => {
+    const s = tl.scenes.find((x) => x.id === id);
+    if (!s) throw new Error(`Нет сцены ${id}`);
+    return s;
+  };
+  // Время начала слова внутри сцены (n-е вхождение) — к нему привязаны анимации
+  const wt = (sceneId: string, word: string, nth = 0): number => {
+    const ws = tl.words.filter((w) => w.scene === sceneId);
+    const n = norm(word);
+    let m = ws.filter((w) => w.n === n);
+    if (!m.length) m = ws.filter((w) => w.n.startsWith(n));
+    if (!m.length) throw new Error(`Слово «${word}» не найдено в ${sceneId}`);
+    return (m[nth] ?? m[m.length - 1]).start;
+  };
+  return {tl, scene, wt};
 };
 
-// Время начала слова внутри сцены (n-е вхождение) — к нему привязаны анимации
-export const wt = (sceneId: string, word: string, nth = 0): number => {
-  const ws = tl.words.filter((w) => w.scene === sceneId);
-  const n = norm(word);
-  let m = ws.filter((w) => w.n === n);
-  if (!m.length) m = ws.filter((w) => w.n.startsWith(n));
-  if (!m.length) throw new Error(`Слово «${word}» не найдено в ${sceneId}`);
-  return (m[nth] ?? m[m.length - 1]).start;
-};
+const part1 = makeTime(timeline as Timeline);
+export const tl = part1.tl;
+export const scene = part1.scene;
+export const wt = part1.wt;
 
 // 0..1 за dur секунд начиная с start
 export const prog = (t: number, start: number, dur: number, ease = Easing.inOut(Easing.cubic)) =>

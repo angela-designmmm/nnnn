@@ -5,7 +5,10 @@
     "studio": "remotion studio",
     "draft": "node scripts/render.mjs draft",
     "final": "node scripts/render.mjs final",
-    "final:no-subs": "node scripts/render.mjs final --no-subs"
+    "final:no-subs": "node scripts/render.mjs final --no-subs",
+    "draft2": "node scripts/render.mjs draft --part 2",
+    "final2": "node scripts/render.mjs final --part 2",
+    "final2:no-subs": "node scripts/render.mjs final --part 2 --no-subs"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.532",

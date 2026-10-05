@@ -29,6 +29,7 @@ face(SANS, 'golos-lat', '400 700', LAT);
 // Подписи-источники. Анджела проверит точные ссылки — менять здесь.
 export const SOURCE_LAUFER = 'Laufer & Goldstein, 2004';
 export const SOURCE_NAKATA = 'Nakata, 2013, 2017';
+export const SOURCE_EBBINGHAUS = 'Ebbinghaus, 1885';
 
 // Безопасная зона Reels
 export const SAFE = {top: 220, bottom: 1500, left: 60, right: 940};
