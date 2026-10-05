@@ -320,8 +320,15 @@ const Month: React.FC<{t: number}> = ({t}) => {
   const next = wt('S07', 'следующем');
   const week = wt('S07', 'неделю');
   const fourth = wt('S07', 'четвёртый');
+  const move = prog(t, wt('S07', 'переходят') - 0.2, 0.4);
+  const ctx = prog(t, wt('S07', 'контекстах') - 0.2, 0.5, easeOut);
+  const pills: [string, string][] = [
+    ['новая статья', 'статье'],
+    ['мои вопросы', 'вопросах'],
+    ['задание другого типа', 'задании'],
+  ];
   const cxs = Array.from({length: 8}, (_, i) => 120 + i * 105);
-  const RY = 900;
+  const RY = 760;
   const arc = (to: number, start: number, hgt: number, label: string) => {
     const p = prog(t, start - 0.1, 0.5);
     if (p <= 0) return null;
@@ -338,8 +345,8 @@ const Month: React.FC<{t: number}> = ({t}) => {
   };
   return (
     <Layer opacity={o}>
-      <div style={{position: 'absolute', left: 60, width: 880, top: 420, textAlign: 'center', fontFamily: SERIF, fontSize: 80, color: C.ink}}>на моих уроках</div>
-      <div style={{position: 'absolute', left: 60, width: 880, top: 530, textAlign: 'center', fontFamily: SANS, fontWeight: 500, fontSize: 36, color: C.sky}}>месяц занятий</div>
+      <div style={{position: 'absolute', left: 60, width: 880, top: 270, textAlign: 'center', fontFamily: SERIF, fontSize: 80, color: C.ink}}>на моих уроках</div>
+      <div style={{position: 'absolute', left: 60, width: 880, top: 375, textAlign: 'center', fontFamily: SANS, fontWeight: 500, fontSize: 36, color: C.sky}}>месяц занятий</div>
       <svg width={1080} height={1920} style={{position: 'absolute', inset: 0}}>
         {arc(1, next, 70, 'следующий урок')}
         {arc(2, week, 190, 'через неделю')}
@@ -375,6 +382,38 @@ const Month: React.FC<{t: number}> = ({t}) => {
           </React.Fragment>
         );
       })}
+      <div style={{position: 'absolute', left: 60, width: 880, top: 900, textAlign: 'center', fontFamily: SANS, fontWeight: 600, fontSize: 42, color: C.ink, opacity: move}}>слова переходят из урока в урок</div>
+      <div style={{position: 'absolute', left: 80, width: 840, top: 980, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14}}>
+        {pills.map(([label, word]) => {
+          const a = sp(t, wt('S07', word) - 0.25, {damping: 18});
+          return (
+            <div
+              key={label}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 18,
+                padding: '10px 26px 10px 12px',
+                borderRadius: 999,
+                background: C.white,
+                boxShadow: '0 6px 16px rgba(30,42,68,0.10)',
+                fontFamily: SANS,
+                fontWeight: 600,
+                fontSize: 36,
+                color: C.ink,
+                opacity: Math.min(1, a * 1.4),
+                transform: `translateY(${(1 - a) * 18}px)`,
+              }}
+            >
+              <span style={{background: C.mist, borderRadius: 999, padding: '4px 14px', fontSize: 26, fontWeight: 600}}>make a decision</span>
+              {label}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{position: 'absolute', left: 60, width: 880, top: 1222, textAlign: 'center', fontFamily: SERIF, fontSize: 54, whiteSpace: 'nowrap', color: C.ink, opacity: ctx, transform: `translateY(${(1 - ctx) * 14}px)`}}>
+        <span style={hl(1)}>одни фразы — разные контексты</span>
+      </div>
     </Layer>
   );
 };
