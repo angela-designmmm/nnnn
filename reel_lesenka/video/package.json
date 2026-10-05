@@ -4,7 +4,8 @@
   "scripts": {
     "studio": "remotion studio",
     "draft": "node scripts/render.mjs draft",
-    "final": "node scripts/render.mjs final"
+    "final": "node scripts/render.mjs final",
+    "final:no-subs": "node scripts/render.mjs final --no-subs"
   },
   "dependencies": {
     "@remotion/cli": "^4.0.532",
