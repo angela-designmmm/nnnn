@@ -18,8 +18,10 @@ export const Cover1: React.FC = () => {
   return (
     <AbsoluteFill>
       <Paper />
-      <div style={{position: 'absolute', left: 60, width: 880, top: 300, textAlign: 'center', fontFamily: SANS, fontWeight: 600, fontSize: 40, color: C.sky}}>часть 1 · пять ступенек</div>
-      <div style={{position: 'absolute', left: 50, width: 900, top: 380, textAlign: 'center', fontFamily: SERIF, fontSize: 98, lineHeight: 1.12, color: C.ink}}>
+      {/* жёлтая рамка по зоне 3:4 (то, что видно в сетке профиля) */}
+      <div style={{position: 'absolute', left: 44, top: 252, width: 1080 - 88, height: 1440 - 24, boxSizing: 'border-box', border: `16px solid ${C.marker}`, borderRadius: 40}} />
+      <div style={{position: 'absolute', left: 60, width: 880, top: 330, textAlign: 'center', fontFamily: SANS, fontWeight: 600, fontSize: 40, color: C.sky}}>часть 1 · пять ступенек</div>
+      <div style={{position: 'absolute', left: 50, width: 900, top: 400, textAlign: 'center', fontFamily: SERIF, fontSize: 86, lineHeight: 1.14, color: C.ink}}>
         {COVER1_TITLE.map((l) => (
           <div key={l} style={{whiteSpace: 'nowrap'}}>
             {l}
