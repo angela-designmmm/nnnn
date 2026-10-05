@@ -4,7 +4,8 @@
  "width": 1080,
  "height": 1920,
  "duration": 95.51531249999996,
- "hasQuestion": false,
+ "hasQuestion": true,
+ "questionAspect": 4.640287769784172,
  "voice": null,
  "music": null,
  "scenes": [

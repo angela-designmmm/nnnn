@@ -8,6 +8,7 @@ export type Timeline = {
   height: number;
   duration: number;
   hasQuestion: boolean;
+  questionAspect: number;
   voice: string | null;
   scenes: {id: string; start: number; end: number}[];
   words: {w: string; n: string; scene: string; start: number; end: number}[];

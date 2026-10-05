@@ -36,4 +36,4 @@ export const CX = (SAFE.left + SAFE.right) / 2; // центр безопасно
 
 // Где на скриншоте подписчицы сам вопрос (доли ширины/высоты картинки) — для обводки маркером.
 // Подстроить, когда появится subscriber_question.png.
-export const QUESTION_OVAL = {cx: 0.5, cy: 0.5, rx: 0.46, ry: 0.22};
+export const QUESTION_OVAL = {cx: 0.45, cy: 0.48, rx: 0.38, ry: 0.25};

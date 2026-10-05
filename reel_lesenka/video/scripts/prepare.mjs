@@ -23,6 +23,12 @@ for (const dir of ['images', 'audio']) {
 
 const exists = (p) => fs.existsSync(path.join(video, 'public', p));
 const hasQuestion = exists('images/subscriber_question.png');
+// пропорции скриншота вопроса (PNG: ширина/высота в заголовке IHDR)
+let questionAspect = 860 / 640;
+if (hasQuestion) {
+  const b = fs.readFileSync(path.join(video, 'public', 'images', 'subscriber_question.png'));
+  questionAspect = b.readUInt32BE(16) / b.readUInt32BE(20);
+}
 const voiceFile = ['audio/voiceover_clean.wav'].find(exists) ?? null;
 const transcriptPath = path.join(video, 'public', 'transcript.json');
 const hasTranscript = fs.existsSync(transcriptPath) && voiceFile;
@@ -176,6 +182,7 @@ const out = {
   height: scenesCfg.height,
   duration: lastEnd,
   hasQuestion,
+  questionAspect,
   voice: hasTranscript ? voiceFile : null,
   music: hasTranscript ? musicFile : null,
   scenes,

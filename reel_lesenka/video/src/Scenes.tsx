@@ -88,8 +88,8 @@ export const Question: React.FC<{t: number}> = ({t}) => {
   const outP = prog(t, s4, 0.55);
   const y = interpolate(inP, [0, 1], [1100, 0]) + outP * 260;
   const W = 860;
-  const H = 640;
-  const top = 470;
+  const H = tl.hasQuestion ? W / tl.questionAspect : 640;
+  const top = 790 - H / 2;
   const left = CX - W / 2;
   return (
     <Layer opacity={1 - outP} style={{transform: `translateY(${y}px)`}}>
