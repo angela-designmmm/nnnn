@@ -13,16 +13,16 @@ EMOJI = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
 def font(size, weight):
     return ImageFont.truetype(INTER % weight, size)
 
-F_PLAQUE = font(48, "Medium")
-F_TITLE = font(46, "Bold")
+F_PLAQUE = font(44, "Medium")
+F_TITLE = font(44, "Bold")
 F_SUB = font(46, "Bold")
 F_TAG = font(32, "SemiBold")
-F_CARD_LBL = font(36, "SemiBold")
-F_CARD_PHRASE = font(76, "ExtraBold")
+F_CARD_LBL = font(30, "SemiBold")
+F_CARD_PHRASE = font(54, "ExtraBold")
 F_CARD_WITH = font(46, "Medium")
-F_FIN_PHRASE = font(52, "Bold")
-F_FIN_DEF = font(44, "Medium")
-F_FIN = font(50, "SemiBold")
+F_FIN_PHRASE = font(50, "Bold")
+F_FIN_DEF = font(40, "Medium")
+F_FIN = font(46, "SemiBold")
 F_EMO = ImageFont.truetype(EMOJI, 109)
 
 # Instagram Reels safe zone: right column of like/comment/share buttons, bottom caption + audio bar,
@@ -30,7 +30,11 @@ F_EMO = ImageFont.truetype(EMOJI, 109)
 SAFE = (60, 250, 920, 1480)
 CX = (SAFE[0] + SAFE[2]) / 2
 SAFE_W = SAFE[2] - SAFE[0]
-SHIFT = 120         # video moved down so the hook doesn't cover the face; top is filled with wall
+# The face (with hair) sits at y ~590..1150 of the frame for the whole clip, so captions only go
+# above the head (TOP_ZONE) or on the chest below the chin (BOTTOM_ZONE) — never over the face.
+TOP_ZONE = (SAFE[1], 575)
+BOTTOM_ZONE = (1170, SAFE[3])
+PLAQUE_TOP = 420    # one-line commentary plaque right under the hook
 
 HL = (255, 214, 10, 255)      # highlight for target vocabulary in subtitles
 GRAY = (120, 120, 120, 255)
@@ -125,7 +129,7 @@ def tokens(s):
         if end: hl = False
     return out
 
-def subtitle(s, tag=None, y=1262):
+def subtitle(s, tag=None, y=BOTTOM_ZONE[0] + 76):
     toks = tokens(s)
     sp = F_SUB.getlength(" ")
     lines, cur, cw = [], [], 0
@@ -172,14 +176,18 @@ def card(rows, top, pad=(48, 36), gap=14, cx=CX, radius=30):
         y += h + gap
     return img
 
+# phrase card sits in the plaque slot under the hook for the first seconds
 INTRO = card([("НОВАЯ ФРАЗА", F_CARD_LBL, GRAY),
-              ("to be on good terms", F_CARD_PHRASE, (0, 0, 0, 255)),
-              ("with someone", F_CARD_WITH, (0, 0, 0, 255))], top=972, pad=(44, 24), gap=8)
-FINAL = card([("to be on good terms with sb", F_FIN_PHRASE, (0, 0, 0, 255)),
-              ("= to get along well with sb", F_FIN_DEF, GRAY),
-              ("", F_FIN, None),
-              ("Ни слова по-русски —", F_FIN, (0, 0, 0, 255)),
-              ("а фраза уже в речи 💬", F_FIN, (0, 0, 0, 255))], top=640)
+              ("to be on good terms with sb", F_CARD_PHRASE, (0, 0, 0, 255))],
+             top=PLAQUE_TOP, pad=(32, 14), gap=0, radius=22)
+# final screen: definition above the head, punchline on the chest — the face stays open
+FINAL_TOP = card([("to be on good terms with sb", F_FIN_PHRASE, (0, 0, 0, 255)),
+                  ("= to get along well with sb", F_FIN_DEF, GRAY)],
+                 top=SAFE[1] + 12, pad=(36, 22), gap=4, radius=24)
+FINAL_BOTTOM = card([("Ни слова по-русски —", F_FIN, (0, 0, 0, 255)),
+                     ("а фраза уже в речи 💬", F_FIN, (0, 0, 0, 255))],
+                    top=BOTTOM_ZONE[0] + 60, pad=(36, 20), gap=2, radius=24)
+FINAL = Image.alpha_composite(FINAL_TOP, FINAL_BOTTOM)
 # hook: on screen from the very first frame, inside the safe zone above the head
 HOOK = card([("Объясняю фразу без перевода —", F_TITLE, (0, 0, 0, 255)),
              ("поймёт ли ученица? 🤔", F_TITLE, (0, 0, 0, 255))],
@@ -211,24 +219,18 @@ SUBS = [
     (53.75, 59.36, S, "really supportive one, who never *blame* you or *shame* you or…"),
 ]
 PLAQUES = [
-    (16.75, 21.00, "Повторяем лексику с прошлого урока 📚"),
-    (21.00, 27.50, "Новая фраза — прямо внутри вопроса"),
-    (27.50, 33.25, "…и ещё одна идиома сверху 👀"),
-    (35.35, 41.40, "Ученица сама объясняет значение — по-английски"),
+    (16.75, 21.00, "Повторяем лексику урока 📚"),
+    (21.00, 27.50, "Новая фраза — внутри вопроса"),
+    (27.50, 33.25, "…и ещё одна идиома 👀"),
+    (35.35, 41.40, "Объясняет сама — по-английски"),
     (41.40, 45.75, "Вместо перевода — синоним"),
-    (48.45, 58.60, "…и сразу строит развёрнутый ответ 🔥"),
+    (48.45, 58.60, "И сразу — развёрнутый ответ 🔥"),
 ]
 INTRO_END = 2.5     # output seconds the phrase card stays on
 FINAL_AT = 58.60    # source time the final card appears
 FREEZE_END = 2.4    # hold last frame under the final card
 
-PLAQUE_TOP = 1010
 
-def shift_down(fr):
-    out = Image.new("RGB", (W, H))
-    out.paste(fr, (0, SHIFT))
-    out.paste(fr.crop((0, 0, W, 24)).resize((W, SHIFT)).filter(ImageFilter.GaussianBlur(6)), (0, 0))
-    return out
 
 def frames_of_video(a, b):
     n = int(round((b - a) * FPS))
@@ -239,7 +241,7 @@ def frames_of_video(a, b):
     for _ in range(n):
         raw = p.stdout.read(W * H * 3)
         if len(raw) < W * H * 3: break
-        got.append(shift_down(Image.frombytes("RGB", (W, H), raw)))
+        got.append(Image.frombytes("RGB", (W, H), raw))
     p.stdout.close(); p.wait()
     while len(got) < n: got.append(got[-1])
     return got
@@ -265,20 +267,22 @@ def shadow_text(img, xy, s, f, fill):
 
 def make_cover():
     """Reels cover. The profile grid shows the centre 1080x1440 (y 240..1680) with no buttons over it,
-    so the cover is centred on the frame, not on the safe-zone middle."""
+    so the cover is centred on the frame. Text sits above the head and on the chest, face stays open."""
     fr = frames_of_video(22.0, 22.1)[0].convert("RGBA")
     grad = Image.new("L", (1, H))
     for y in range(H):
-        grad.putpixel((0, y), int(200 * min(1, max(0, (y - 820) / 380))))
+        top = max(0, (600 - y) / 360)            # darken the light wall behind the headline
+        bot = max(0, (y - 1150) / 300)            # and the t-shirt under the phrase
+        grad.putpixel((0, y), int(190 * min(1, max(top, bot))))
     fr = Image.composite(BLACK, fr, grad.resize((W, H)))
     f_big = font(84, "Black")
     for i, (t, c) in enumerate([("ОБЪЯСНЯЮ ФРАЗУ", (255, 255, 255, 255)), ("БЕЗ ПЕРЕВОДА", HL)]):
-        shadow_text(fr, ((W - text_w(t, f_big)) / 2, 960 + i * 100), t, f_big, c)
+        shadow_text(fr, ((W - text_w(t, f_big)) / 2, 300 + i * 100), t, f_big, c)
     fr.alpha_composite(card([("to be on good terms", font(58, "ExtraBold"), (0, 0, 0, 255))],
-                            top=1190, pad=(36, 18), cx=W / 2, radius=26))
+                            top=1230, pad=(36, 18), cx=W / 2, radius=26))
     f_q = font(52, "Bold")
     q = "поймёт ли ученица? 🤔"
-    shadow_text(fr, ((W - text_w(q, f_q)) / 2, 1330), q, f_q, (255, 255, 255, 255))
+    shadow_text(fr, ((W - text_w(q, f_q)) / 2, 1375), q, f_q, (255, 255, 255, 255))
     return fr.convert("RGB")
 
 HOOK.save("good_terms_hook.png")
@@ -303,12 +307,10 @@ for ci, (a, b) in enumerate(CUTS):
         intro = t_out < INTRO_END
         if final:
             if final_t0 is None: final_t0 = t_out
-            fr = Image.blend(fr, BLACK, 0.55 * min(1.0, (t_out - final_t0) / 0.35))
+            fr = Image.blend(fr, BLACK, 0.25 * min(1.0, (t_out - final_t0) / 0.35))
             fr.alpha_composite(pop(FINAL, t_out - final_t0))
         else:
             if intro:
-                fade = 1.0 if t_out < INTRO_END - 0.25 else (INTRO_END - t_out) / 0.25
-                fr = Image.blend(fr, BLACK, 0.4 * fade)
                 fr.alpha_composite(pop(INTRO, t_out))
             fr.alpha_composite(HOOK)
             if not intro:
