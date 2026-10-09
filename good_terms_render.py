@@ -13,17 +13,24 @@ EMOJI = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
 def font(size, weight):
     return ImageFont.truetype(INTER % weight, size)
 
-F_PLAQUE = font(52, "Medium")
-F_TITLE = font(46, "SemiBold")
-F_SUB = font(50, "Bold")
-F_TAG = font(34, "SemiBold")
-F_CARD_LBL = font(40, "SemiBold")
-F_CARD_PHRASE = font(92, "ExtraBold")
-F_CARD_WITH = font(52, "Medium")
-F_FIN_PHRASE = font(60, "Bold")
-F_FIN_DEF = font(48, "Medium")
-F_FIN = font(56, "SemiBold")
+F_PLAQUE = font(48, "Medium")
+F_TITLE = font(46, "Bold")
+F_SUB = font(46, "Bold")
+F_TAG = font(32, "SemiBold")
+F_CARD_LBL = font(36, "SemiBold")
+F_CARD_PHRASE = font(76, "ExtraBold")
+F_CARD_WITH = font(46, "Medium")
+F_FIN_PHRASE = font(52, "Bold")
+F_FIN_DEF = font(44, "Medium")
+F_FIN = font(50, "SemiBold")
 F_EMO = ImageFont.truetype(EMOJI, 109)
+
+# Instagram Reels safe zone: right column of like/comment/share buttons, bottom caption + audio bar,
+# top header. Every caption stays inside SAFE (x0, y0, x1, y1) and is centred on its middle.
+SAFE = (60, 250, 920, 1480)
+CX = (SAFE[0] + SAFE[2]) / 2
+SAFE_W = SAFE[2] - SAFE[0]
+SHIFT = 120         # video moved down so the hook doesn't cover the face; top is filled with wall
 
 HL = (255, 214, 10, 255)      # highlight for target vocabulary in subtitles
 GRAY = (120, 120, 120, 255)
@@ -81,7 +88,7 @@ def wrap(s, f, maxw):
         lines.append(cur)
     return lines
 
-def plaque(s, f, top, align="left", maxw=860, pad=(30, 22), lh=1.22, full_lines=None):
+def plaque(s, f, top, align="left", maxw=SAFE_W - 60, pad=(30, 22), lh=1.22, full_lines=None):
     """White rounded box with black text (same look as the part 1/2 Reels).
     full_lines: wrapping of the full string so a typewriter prefix keeps the final box layout."""
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
@@ -95,7 +102,7 @@ def plaque(s, f, top, align="left", maxw=860, pad=(30, 22), lh=1.22, full_lines=
     lhp = int(f.size * lh)
     bw = max(text_w(l, f) for l in shown) + 2 * pad[0]
     bh = lhp * len(shown) + 2 * pad[1]
-    x0 = (W - bw) / 2
+    x0 = CX - bw / 2
     d = ImageDraw.Draw(img)
     d.rounded_rectangle([x0, top, x0 + bw, top + bh], radius=22, fill=(255, 255, 255, 255))
     for i, l in enumerate(shown):
@@ -118,13 +125,13 @@ def tokens(s):
         if end: hl = False
     return out
 
-def subtitle(s, tag=None, y=1560):
+def subtitle(s, tag=None, y=1262):
     toks = tokens(s)
     sp = F_SUB.getlength(" ")
     lines, cur, cw = [], [], 0
     for w, hl in toks:
         ww = F_SUB.getlength(w)
-        if cur and cw + sp + ww > 900:
+        if cur and cw + sp + ww > SAFE_W - 40:
             lines.append((cur, cw)); cur, cw = [], 0
         cw += (sp if cur else 0) + ww; cur.append((w, hl))
     lines.append((cur, cw))
@@ -132,48 +139,51 @@ def subtitle(s, tag=None, y=1560):
     sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     dt, ds = ImageDraw.Draw(txt), ImageDraw.Draw(sh)
     for i, (ws, lw) in enumerate(lines):
-        x = (W - lw) / 2
+        x = CX - lw / 2
         for w, hl in ws:
-            ds.text((x, y + i * 62), w, font=F_SUB, fill=(0, 0, 0, 210))
-            dt.text((x, y + i * 62), w, font=F_SUB, fill=HL if hl else (255, 255, 255, 255))
+            ds.text((x, y + i * 58), w, font=F_SUB, fill=(0, 0, 0, 210))
+            dt.text((x, y + i * 58), w, font=F_SUB, fill=HL if hl else (255, 255, 255, 255))
             x += F_SUB.getlength(w) + sp
     sh = sh.filter(ImageFilter.GaussianBlur(4))
     out = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     if tag:
         tw = text_w(tag, F_TAG)
         d = ImageDraw.Draw(out)
-        x0, y0 = (W - tw) / 2 - 22, y - 70
-        d.rounded_rectangle([x0, y0, x0 + tw + 44, y0 + 54], radius=27, fill=(0, 0, 0, 150))
+        x0, y0 = CX - tw / 2 - 22, y - 64
+        d.rounded_rectangle([x0, y0, x0 + tw + 44, y0 + 50], radius=25, fill=(0, 0, 0, 150))
         draw_run(out, (x0 + 22, y0 + 6), tag, F_TAG, HL)
     out.alpha_composite(sh, (3, 3)); out.alpha_composite(sh); out.alpha_composite(txt)
     return out
 
 # ---------- intro phrase card / final card ----------
-def card(rows, top, pad=(48, 36), gap=14):
+def card(rows, top, pad=(48, 36), gap=14, cx=CX, radius=30):
     """rows: list of (text, font, color). Centered white card."""
     img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     hs = [int(f.size * 1.2) if t else 20 for t, f, _ in rows]
     bw = max(text_w(t, f) for t, f, _ in rows if t) + 2 * pad[0]
     bh = sum(hs) + gap * (len(rows) - 1) + 2 * pad[1]
-    x0 = (W - bw) / 2
-    d.rounded_rectangle([x0, top, x0 + bw, top + bh], radius=30, fill=(255, 255, 255, 255))
+    x0 = cx - bw / 2
+    d.rounded_rectangle([x0, top, x0 + bw, top + bh], radius=radius, fill=(255, 255, 255, 255))
     y = top + pad[1]
     for (t, f, c), h in zip(rows, hs):
         if t:
-            draw_run(img, ((W - text_w(t, f)) / 2, y), t, f, c)
+            draw_run(img, (cx - text_w(t, f) / 2, y), t, f, c)
         y += h + gap
     return img
 
 INTRO = card([("НОВАЯ ФРАЗА", F_CARD_LBL, GRAY),
               ("to be on good terms", F_CARD_PHRASE, (0, 0, 0, 255)),
-              ("with someone", F_CARD_WITH, (0, 0, 0, 255))], top=1060)
+              ("with someone", F_CARD_WITH, (0, 0, 0, 255))], top=972, pad=(44, 24), gap=8)
 FINAL = card([("to be on good terms with sb", F_FIN_PHRASE, (0, 0, 0, 255)),
               ("= to get along well with sb", F_FIN_DEF, GRAY),
               ("", F_FIN, None),
               ("Ни слова по-русски —", F_FIN, (0, 0, 0, 255)),
-              ("а фраза уже в речи 💬", F_FIN, (0, 0, 0, 255))], top=700)
-TITLE = "Учим новые фразы без перевода 🇬🇧"
+              ("а фраза уже в речи 💬", F_FIN, (0, 0, 0, 255))], top=640)
+# hook: on screen from the very first frame, inside the safe zone above the head
+HOOK = card([("Объясняю фразу без перевода —", F_TITLE, (0, 0, 0, 255)),
+             ("поймёт ли ученица? 🤔", F_TITLE, (0, 0, 0, 255))],
+            top=SAFE[1] + 12, pad=(30, 20), gap=2, radius=24)
 
 def pop(img, t, dur=0.22):
     """Scale-in from 92% for the first `dur` seconds."""
@@ -212,8 +222,13 @@ INTRO_END = 2.5     # output seconds the phrase card stays on
 FINAL_AT = 58.60    # source time the final card appears
 FREEZE_END = 2.4    # hold last frame under the final card
 
-PLAQUE_TOP = 1170
-TITLE_TOP = 80
+PLAQUE_TOP = 1010
+
+def shift_down(fr):
+    out = Image.new("RGB", (W, H))
+    out.paste(fr, (0, SHIFT))
+    out.paste(fr.crop((0, 0, W, 24)).resize((W, SHIFT)).filter(ImageFilter.GaussianBlur(6)), (0, 0))
+    return out
 
 def frames_of_video(a, b):
     n = int(round((b - a) * FPS))
@@ -224,7 +239,7 @@ def frames_of_video(a, b):
     for _ in range(n):
         raw = p.stdout.read(W * H * 3)
         if len(raw) < W * H * 3: break
-        got.append(Image.frombytes("RGB", (W, H), raw))
+        got.append(shift_down(Image.frombytes("RGB", (W, H), raw)))
     p.stdout.close(); p.wait()
     while len(got) < n: got.append(got[-1])
     return got
@@ -235,11 +250,39 @@ def cached(key, fn):
     return cache[key]
 
 def plaque_at(text, rel):
-    full = wrap(text, F_PLAQUE, 900)
+    full = wrap(text, F_PLAQUE, SAFE_W - 60)
     k = min(len(text), int(rel / 0.35 * len(text)) + 1)   # typewriter in 0.35s
     return cached(("p", text, k), lambda: plaque(text[:k], F_PLAQUE, PLAQUE_TOP, full_lines=full))
 
 BLACK = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+
+# ---------------- stills: hook PNG (transparent) + cover ----------------
+def shadow_text(img, xy, s, f, fill):
+    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    draw_run(sh, xy, s, f, (0, 0, 0, 170))
+    sh = sh.filter(ImageFilter.GaussianBlur(6))
+    img.alpha_composite(sh, (0, 4)); draw_run(img, xy, s, f, fill)
+
+def make_cover():
+    """Reels cover. The profile grid shows the centre 1080x1440 (y 240..1680) with no buttons over it,
+    so the cover is centred on the frame, not on the safe-zone middle."""
+    fr = frames_of_video(22.0, 22.1)[0].convert("RGBA")
+    grad = Image.new("L", (1, H))
+    for y in range(H):
+        grad.putpixel((0, y), int(200 * min(1, max(0, (y - 820) / 380))))
+    fr = Image.composite(BLACK, fr, grad.resize((W, H)))
+    f_big = font(84, "Black")
+    for i, (t, c) in enumerate([("ОБЪЯСНЯЮ ФРАЗУ", (255, 255, 255, 255)), ("БЕЗ ПЕРЕВОДА", HL)]):
+        shadow_text(fr, ((W - text_w(t, f_big)) / 2, 960 + i * 100), t, f_big, c)
+    fr.alpha_composite(card([("to be on good terms", font(58, "ExtraBold"), (0, 0, 0, 255))],
+                            top=1190, pad=(36, 18), cx=W / 2, radius=26))
+    f_q = font(52, "Bold")
+    q = "поймёт ли ученица? 🤔"
+    shadow_text(fr, ((W - text_w(q, f_q)) / 2, 1330), q, f_q, (255, 255, 255, 255))
+    return fr.convert("RGB")
+
+HOOK.save("good_terms_hook.png")
+make_cover().save("good_terms_cover.png")
 
 enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                         "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264",
@@ -265,11 +308,10 @@ for ci, (a, b) in enumerate(CUTS):
         else:
             if intro:
                 fade = 1.0 if t_out < INTRO_END - 0.25 else (INTRO_END - t_out) / 0.25
-                fr = Image.blend(fr, BLACK, 0.5 * fade)
+                fr = Image.blend(fr, BLACK, 0.4 * fade)
                 fr.alpha_composite(pop(INTRO, t_out))
-            else:
-                fr.alpha_composite(cached("title", lambda: plaque(TITLE, F_TITLE, TITLE_TOP,
-                                                                   align="center", maxw=960)))
+            fr.alpha_composite(HOOK)
+            if not intro:
                 for p0, p1, txt in PLAQUES:
                     if p0 <= src_t < p1:
                         fr.alpha_composite(plaque_at(txt, src_t - max(p0, a)))
