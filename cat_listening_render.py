@@ -1,7 +1,8 @@
 """Reels «Проверь уровень на слух»: talking cat reads a story that climbs A1 -> B2.
 
 Usage: KOKORO_DIR=/path/with/kokoro-v1.0.onnx+voices-v1.0.bin python3 cat_listening_render.py cat.jpg
-Voice: Kokoro TTS (am_michael). Output: cat_listening_reels.mp4
+Voice: Kokoro TTS (am_michael). Palette: Champagne #FBDFA2 / Chocolate #442216.
+Output: cat_listening_reels.mp4
 """
 import os, re, subprocess, sys
 import numpy as np
@@ -18,6 +19,9 @@ F_TAG = ImageFont.truetype(INTER.format("SemiBold"), 34)
 HOOK = "Проверь свой уровень на слух.\nНа каком куске перестал(а) понимать?"
 QUESTION = "Why does Anna think losing her suitcase was a good thing?"
 VOICE = "am_michael"
+A2_NOTE = "Твой уровень A2?\nЗагляни в описание ↓"
+CHAMP = (251, 223, 162)
+CHOCO = (68, 34, 22)
 
 # (level, colour, speed, gap between sentences, text) — speech gets faster with the level
 LEVELS = [
@@ -39,7 +43,7 @@ LEVELS = [
 HOOK_DUR = 3.2      # hook on screen before the cat starts
 LEVEL_LEAD = 0.45   # badge pops this long before the level's first word
 LEVEL_GAP = 0.75    # silence after each level
-Q_TAIL = 3.5        # hold on the question after it is read
+Q_TAIL = 4.5        # hold on the question + A2 note after it is read
 
 # ---------------- speech ----------------
 from kokoro_onnx import Kokoro
@@ -104,7 +108,7 @@ FACE = (560 * SC, 520 * SC)                 # push-in anchor
 
 bg = src.resize((round(src.width * H / src.height), H), Image.LANCZOS)
 bg = bg.crop(((bg.width - W) // 2, 0, (bg.width - W) // 2 + W, H)).filter(ImageFilter.GaussianBlur(45))
-BG = Image.eval(bg, lambda v: int(v * 0.45))
+BG = Image.blend(bg, Image.new("RGB", (W, H), CHOCO), 0.85)   # chocolate with a hint of the photo
 
 px0, px1 = int(MX - HW - 4), int(MX + HW + 4)
 py0, py1 = int(MY - 6), int(MY + FALL + DMAX + 4)
@@ -146,8 +150,8 @@ def ease(x):
     x = min(max(x, 0), 1)
     return 1 - (1 - x) ** 3
 
-def plaque(text, f, top, maxw=920, pad=(38, 28), lh=1.25, alpha=255):
-    """White rounded box, black centred text (same look as the part 2 Reels plaques)."""
+def plaque(text, f, top, maxw=920, pad=(38, 28), lh=1.25, alpha=255, box=CHAMP, ink=CHOCO, border=None):
+    """Rounded box with centred text: champagne box + chocolate text by default."""
     lines = []
     for para in text.split("\n"):
         cur = ""
@@ -164,13 +168,15 @@ def plaque(text, f, top, maxw=920, pad=(38, 28), lh=1.25, alpha=255):
     bw = max(f.getlength(l) for l in lines) + 2 * pad[0]
     bh = lhp * len(lines) + 2 * pad[1]
     x0 = (W - bw) / 2
-    d.rounded_rectangle([x0, top, x0 + bw, top + bh], radius=26, fill=(255, 255, 255, alpha))
+    d.rounded_rectangle([x0, top, x0 + bw, top + bh], radius=26, fill=box + (alpha,),
+                        outline=border + (alpha,) if border else None, width=4)
     for i, l in enumerate(lines):
-        d.text(((W - f.getlength(l)) / 2, top + pad[1] + i * lhp - f.size * 0.04), l, font=f, fill=(0, 0, 0, alpha))
+        d.text(((W - f.getlength(l)) / 2, top + pad[1] + i * lhp - f.size * 0.04), l, font=f, fill=ink + (alpha,))
     return img
 
 HOOK_IMG = plaque(HOOK, F_HOOK, FG_Y + 70, maxw=980)
 Q_IMG = plaque(QUESTION, F_Q, FG_Y + 70, maxw=900)
+A2_IMG = plaque(A2_NOTE, F_HOOK, 1420, maxw=900, box=CHOCO, ink=CHAMP, border=CHAMP)
 
 def level_bar(active, pop):
     """A1 · A2 · B1 · B2 pills; the current one is coloured and pops in."""
@@ -185,25 +191,25 @@ def level_bar(active, pop):
             if pop < 0.25: s = 0.8 + 1.6 * pop
             w2, h2 = pw * s, ph * s
             cx, cy = x + pw / 2, y + ph / 2
-            d.rounded_rectangle([cx - w2 / 2, cy - h2 / 2, cx + w2 / 2, cy + h2 / 2], radius=h2 / 2, fill=col + (255,))
-            fc = (255, 255, 255, 255)
+            d.rounded_rectangle([cx - w2 / 2, cy - h2 / 2, cx + w2 / 2, cy + h2 / 2], radius=h2 / 2, fill=CHAMP + (255,))
+            fc = CHOCO + (255,)
         elif active is not None and i < active:
-            d.rounded_rectangle([x, y, x + pw, y + ph], radius=ph / 2, fill=(255, 255, 255, 70))
-            fc = (255, 255, 255, 150)
+            d.rounded_rectangle([x, y, x + pw, y + ph], radius=ph / 2, fill=CHAMP + (60,))
+            fc = CHAMP + (150,)
         else:
-            d.rounded_rectangle([x, y, x + pw, y + ph], radius=ph / 2, outline=(255, 255, 255, 120), width=3)
-            fc = (255, 255, 255, 150)
+            d.rounded_rectangle([x, y, x + pw, y + ph], radius=ph / 2, outline=CHAMP + (130,), width=3)
+            fc = CHAMP + (170,)
         d.text((x + (pw - F_LVL.getlength(lvl)) / 2, y + ph / 2 - F_LVL.size * 0.62), lvl, font=F_LVL, fill=fc)
         x += pw + gap
     return img
 
-# top/bottom gradient so the photo blends into the blurred background
-GRAD = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-gd = ImageDraw.Draw(GRAD)
-for i in range(160):
-    a = int(255 * 0.55 * (1 - i / 160) ** 1.6)
-    gd.line([(0, FG_Y + i), (W, FG_Y + i)], fill=(0, 0, 0, a))
-    gd.line([(0, FG_Y + FG.height - i), (W, FG_Y + FG.height - i)], fill=(0, 0, 0, a))
+# photo edges fade into the chocolate background (mask moves with the push-in)
+MASK = Image.new("L", FG.size, 255)
+md = ImageDraw.Draw(MASK)
+for i in range(170):
+    a = int(255 * (i / 170) ** 1.3)
+    md.line([(0, i), (W, i)], fill=a)
+    md.line([(0, FG.height - 1 - i), (W, FG.height - 1 - i)], fill=a)
 
 enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24",
                         "-s", f"{W}x{H}", "-r", str(FPS), "-i", "-", "-c:v", "libx264",
@@ -218,12 +224,12 @@ for k in range(NF):
     fg = face(int(OPEN[k]))
     fw, fh = round(FG.width * z), round(FG.height * z)
     fz = fg.resize((fw, fh), Image.BILINEAR)
+    mz = MASK.resize((fw, fh), Image.BILINEAR)
     ox = FACE[0] - FACE[0] * z
     oy = FACE[1] - FACE[1] * z + FG_Y - 1.2 * OPEN[k] / 10
     fr = BG.copy()
-    fr.paste(fz, (round(ox), round(oy)))
+    fr.paste(fz, (round(ox), round(oy)), mz)
     fr = fr.convert("RGBA")
-    fr.alpha_composite(GRAD)
 
     active = None
     for st, i in level_at:
@@ -239,13 +245,17 @@ for k in range(NF):
         fr.alpha_composite(HOOK_IMG)
     if tt >= q_at:
         a = ease((tt - q_at) / 0.3)
-        dim = Image.new("RGBA", (W, H), (0, 0, 0, int(90 * a)))
+        dim = Image.new("RGBA", (W, H), CHOCO + (int(110 * a),))
         fr.alpha_composite(dim)
         if a < 1:
             q = Q_IMG.copy(); q.putalpha(Image.eval(q.getchannel("A"), lambda v: int(v * a)))
             fr.alpha_composite(q, (0, int(30 * (1 - a))))
         else:
             fr.alpha_composite(Q_IMG)
+        b = ease((tt - q_at - 1.0) / 0.35)
+        if b > 0:
+            n = A2_IMG.copy(); n.putalpha(Image.eval(n.getchannel("A"), lambda v: int(v * b)))
+            fr.alpha_composite(n, (0, int(40 * (1 - b))))
     enc.stdin.write(fr.convert("RGB").tobytes())
     if k % 300 == 0: print(f"frame {k}/{NF}", flush=True)
 enc.stdin.close(); enc.wait()
