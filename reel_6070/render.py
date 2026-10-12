@@ -344,7 +344,21 @@ def cards_layer(top=SAFE_TOP + 20):
     return img
 
 
-CARDS_L = cards_layer()
+HOOK_HEAD = "+3087 английских слов за 8 месяцев."
+HOOK_BODY = "Рассказываю, как"
+HOOK_FRAME = (300, 440)        # source point kept centred in the hook: puts the face lower, under the text
+
+
+def hook_title_layer(top=SAFE_TOP + 20):
+    """Champagne plaque with the hook line, the result screenshots right under it."""
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    bottom = plaque(img, HOOK_BODY, F_TEXT(48), top, box=CHAMP, ink=CHOCO, head=HOOK_HEAD,
+                    f_head=F_HEAD(76), pad=(40, 28))
+    img.alpha_composite(cards_layer(top=bottom - 6))
+    return img
+
+
+CARDS_L = hook_title_layer()
 NICK_ON_CHAMP = nick_layer(CHOCO)
 SUB_L = {txt: bottom_plaque(txt, f=F_TEXT(46)) for txt in HOOK_SUBS}
 
@@ -352,8 +366,8 @@ SUB_L = {txt: bottom_plaque(txt, f=F_TEXT(46)) for txt in HOOK_SUBS}
 def hook_frames():
     frs, bounds = [], []
     for k, (a, b) in enumerate(HOOK_CLIPS):
-        z = 1.0 + 0.03 * k
-        part = clip_frames(a, b, z, z + 0.03, FACE)
+        z = 1.15 + 0.03 * k
+        part = clip_frames(a, b, z, z + 0.03, HOOK_FRAME)
         bounds.append((len(frs), len(frs) + len(part), HOOK_SUBS[k]))
         frs += part
     for i, fr in enumerate(frs):
@@ -504,9 +518,8 @@ def render():
 
 
 def cover():
-    fr = clip_frames(15.6, 15.7, 1.06, 1.06, FACE)[0].convert("RGBA")
-    fr.alpha_composite(headline_layer(size=118, top=SAFE_TOP + 40))
-    fr.alpha_composite(cards_layer(top=SAFE_TOP + 250))
+    fr = clip_frames(15.6, 15.7, 1.18, 1.18, HOOK_FRAME)[0].convert("RGBA")
+    fr.alpha_composite(CARDS_L)
     fr.convert("RGB").save(os.path.join(HERE, "out", "cover.png"))
 
 
