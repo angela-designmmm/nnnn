@@ -5,6 +5,11 @@ Usage:  python3 vocab_render.py clips.json out.mp4
 clips.json: [{"src": "v1.mov", "in": 12.3, "out": 16.9, "en": "as corny as it sounds",
               "ru": "как бы банально это ни звучало", "zoom": 1.0, "cx": 0.5, "cy": 0.4}, ...]
 zoom/cx/cy are optional: extra zoom into the top video and the focus point (0..1) of the crop.
+With an intro card the file is an object instead:
+  {"intro": {"title": "3 фразы, ...", "mark": "3 фразы", "src": "v1.mov", "at": 0.5, "dur": 2.0},
+   "clips": [...]}
+The intro shows a frozen frame of src at `at` (slow push-in) over the paper with the title;
+`mark` is the part of the title under a highlighter stroke.
 """
 import json, os, subprocess, sys
 import numpy as np
@@ -118,10 +123,58 @@ def card(base, en, ru):
     return img
 
 
+def title_card(base, title, mark=""):
+    """Intro: big bold title written on the ruled lines, `mark` under a yellow highlighter."""
+    img = base.copy()
+    size = 72                          # largest size that fits in 3 lines (4 as a fallback)
+    while True:
+        ft = font(F_EN, size, 800)
+        lines = wrap(title, ft, SAFE_X1 - 290)
+        if len(lines) <= 3 or size <= 50: break
+        size -= 2
+    hl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    hd = ImageDraw.Draw(hl)
+    d = ImageDraw.Draw(img)
+    rows = []
+    for i, ln in enumerate(lines[:4]):
+        y = LINE0 + (1 + i) * LINE_STEP - 16
+        assert y + 18 <= SAFE_Y1, "title runs out of the safe zone"
+        rows.append((ln, y))
+        if mark and ln.replace("\u00a0", " ").startswith(mark):
+            mw = ft.getlength(ln[:len(mark)])
+            hd.polygon([(288, y - size * 0.72), (300 + mw + 8, y - size * 0.78),
+                        (300 + mw + 5, y + 10), (292, y + 14)], fill=(255, 214, 64, 200))
+    img.alpha_composite(hl)
+    for ln, y in rows:
+        d.text((300, y), ln, font=ft, fill=(0, 0, 0), anchor="ls")
+    return img
+
+
 def render(clips, out, tmp):
     base = paper()
     os.makedirs(tmp, exist_ok=True)
+    intro = None
+    if isinstance(clips, dict):
+        intro, clips = clips.get("intro"), clips["clips"]
     inputs, filt, cat = [], [], ""
+    n0 = 0
+    if intro:
+        png = os.path.join(tmp, "intro.png")
+        title_card(base, intro["title"], intro.get("mark", "")).convert("RGB").save(png)
+        d = intro.get("dur", 2.0)
+        z, cx, cy = intro.get("zoom", 1.0), intro.get("cx", 0.5), intro.get("cy", 0.5)
+        inputs += ["-ss", str(intro.get("at", 0)), "-i", intro["src"],
+                   "-loop", "1", "-t", f"{d:.3f}", "-r", str(FPS), "-i", png,
+                   "-f", "lavfi", "-t", f"{d:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
+        filt.append(
+            f"[0:v]trim=end_frame=1,setpts=PTS-STARTPTS,loop=loop={int(d * FPS)}:size=1,fps={FPS},"
+            f"scale={int(W * z)}:{int(VID_H * z)}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"scale='trunc(iw*(1+0.06*t/{d})/2)*2':'trunc(ih*(1+0.06*t/{d})/2)*2':eval=frame,"
+            f"crop={W}:{VID_H}:(iw-{W})*{cx}:(ih-{VID_H})*{cy},setsar=1[ti];"
+            f"[1:v][ti]overlay=0:0:shortest=1,format=yuv420p,setsar=1,trim=duration={d}[vi];"
+            f"[2:a]anull[ai]")
+        cat += "[vi][ai]"
+        n0 = 3
     for i, c in enumerate(clips):
         png = os.path.join(tmp, f"card{i}.png")
         card(base, c["en"], c["ru"]).convert("RGB").save(png)
@@ -131,13 +184,13 @@ def render(clips, out, tmp):
                    "-loop", "1", "-t", f"{d:.3f}", "-r", str(FPS), "-i", png]
         vw, vh = int(W * z), int(VID_H * z)
         filt.append(
-            f"[{2*i}:v]fps={FPS},scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"[{n0+2*i}:v]fps={FPS},scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=lanczos,"
             f"crop={W}:{VID_H}:(iw-{W})*{cx}:(ih-{VID_H})*{cy},setsar=1[t{i}];"
-            f"[{2*i+1}:v][t{i}]overlay=0:0:shortest=1,format=yuv420p,setsar=1[v{i}];"
-            f"[{2*i}:a]aresample=48000,aformat=channel_layouts=stereo,"
+            f"[{n0+2*i+1}:v][t{i}]overlay=0:0:shortest=1,format=yuv420p,setsar=1[v{i}];"
+            f"[{n0+2*i}:a]aresample=48000,aformat=channel_layouts=stereo,"
             f"afade=t=in:d=0.02,afade=t=out:st={d-0.03:.3f}:d=0.03,apad,atrim=0:{d:.3f}[a{i}]")
         cat += f"[v{i}][a{i}]"
-    fc = ";".join(filt) + f";{cat}concat=n={len(clips)}:v=1:a=1[v][a0];" \
+    fc = ";".join(filt) + f";{cat}concat=n={len(clips) + bool(intro)}:v=1:a=1[v][a0];" \
          "[a0]highpass=f=80,loudnorm=I=-14:TP=-1.5:LRA=11[a]"
     subprocess.run(["ffmpeg", "-v", "error", "-y", *inputs, "-filter_complex", fc,
                     "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-preset", "medium", "-crf", "18",

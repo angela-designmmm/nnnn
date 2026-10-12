@@ -1,8 +1,36 @@
-[
- {"src": "reels_vocab1/comfort_person.mov", "in": 0, "out": 2.32, "en": "comfort person",
-  "ru": "близкий человек, рядом с которым спокойно", "cx": 0.3},
- {"src": "reels_vocab1/under_the_influence.mov", "in": 0, "out": 3.2, "en": "under the influence",
-  "ru": "в нетрезвом состоянии, под воздействием алкоголя", "cx": 0.35},
- {"src": "reels_vocab1/blowout.mov", "in": 0, "out": 2.91, "en": "blowout",
-  "ru": "шумная вечеринка, кутёж", "cx": 0.35}
-]
+{
+ "intro": {
+  "title": "3 фразы, которые носители говорят постоянно",
+  "mark": "3 фразы",
+  "src": "reels_vocab1/under_the_influence.mov",
+  "at": 1.2,
+  "dur": 2.0,
+  "cx": 0.35
+ },
+ "clips": [
+  {
+   "src": "reels_vocab1/comfort_person.mov",
+   "in": 0,
+   "out": 2.32,
+   "en": "comfort person",
+   "ru": "близкий человек, рядом с которым спокойно",
+   "cx": 0.3
+  },
+  {
+   "src": "reels_vocab1/under_the_influence.mov",
+   "in": 0,
+   "out": 3.2,
+   "en": "under the influence",
+   "ru": "в нетрезвом состоянии, под воздействием алкоголя",
+   "cx": 0.35
+  },
+  {
+   "src": "reels_vocab1/blowout.mov",
+   "in": 0,
+   "out": 2.91,
+   "en": "blowout",
+   "ru": "шумная вечеринка, кутёж",
+   "cx": 0.35
+  }
+ ]
+}
