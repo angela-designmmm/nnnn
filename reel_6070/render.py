@@ -1,13 +1,13 @@
 """Reels «6070 → 9157 слов» for @secondnature.eng.
 
-Text-only version (no voiceover yet): hook with the student's own audio, then
-on-screen text over lesson footage with background music, results, CTA.
+Text-only version, no music: hook = the student's reaction (her own audio) with the result
+screenshots on top; then silent text plaques over lesson-board screencasts, results, CTA.
 
   python3 render.py preview   # stills of every scene with the Reels safe zones -> out/
   python3 render.py           # out/reel_6070-9157.mp4 + out/cover.png
 
 Inputs: assets/progress.mov (lesson clip, 21 s, rotated -90), assets/results.png,
-optional assets/music.mp3 (otherwise a soft placeholder track is synthesised).
+assets/broll/ (Miro screencasts + progress board from the lesson_prep / reel_lesenka assets).
 """
 import os, subprocess, sys
 import numpy as np
@@ -304,49 +304,129 @@ def nick_layer(color, pill=None):
 
 # ---------------- timeline ----------------
 FACE = (300, 640)                 # Angela's face, source px
-HOOK_SUBS = [(0.0, 3.3, "But this one… wow, I didn't expect that."),
-             (3.3, 6.25, "I thought it was just a minor one.")]
-ITEMS = [  # (clips [(a, b)], zoom from, zoom to, centre, head, text)
-    ([(3.3, 8.3)], 1.0, 1.06, FACE, None,
-     "У неё высокий уровень. Но принцип один и тот же, даже если ты сейчас на A2"),
-    ([(8.3, 14.3)], 1.12, 1.18, (320, 700), "1. Рециркуляция слов.", "Возвращаемся к словам из урока в урок"),
-    ([(0.0, 3.3), (18.25, 21.1)], 1.28, 1.34, (280, 600), "2. Разные контексты.",
-     "Встречаем слово снова и снова, поэтому запоминаем намного больше"),
-    ([(14.3, 20.3)], 1.05, 1.12, (360, 720), "3. Слова сразу в речь.", "На занятиях вы говорите 75–80% времени"),
-    ([(5.0, 10.0)], 1.35, 1.42, (300, 620), "4. Домашка с автопроверкой.", "Ошибся, сразу видишь, где и почему"),
+# hook: the student's reaction only; "kind of admired" is the last line of the clip
+HOOK_CLIPS = [(0.0, 3.3), (15.3, 18.25), (18.25, 21.1)]
+HOOK_SUBS = ["But this one… wow, I didn't expect that.",
+             "I thought it was just a minor one.",
+             "And I was like… kind of admired."]
+BROLL = os.path.join(HERE, "assets", "broll")
+ITEMS = [  # (backdrop, start s, crop box in source px, head, text, duration)
+    ("progress_board.jpg", 0, (0, 0, 829, 556), None,
+     "У неё высокий уровень. Но принцип один и тот же, даже если ты сейчас на A2", 4.5),
+    ("sc8_whole.mov", 2.0, (0, 141, 1000, 1096), "1. Рециркуляция слов.", "Возвращаемся к словам из урока в урок", 5.0),
+    ("sc2_1337.mov", 9.0, (420, 110, 1220, 892), "2. Разные контексты.",
+     "Встречаем слово снова и снова, поэтому запоминаем намного больше", 5.0),
+    ("sc4_1341.mov", 28.0, (750, 70, 1750, 1025), "3. Слова сразу в речь.", "На занятиях вы говорите 75–80% времени", 5.0),
+    ("sc7_wrap_up.mov", 1.0, (980, 90, 1980, 1045), "4. Домашка с автопроверкой.", "Ошибся, сразу видишь, где и почему", 5.0),
 ]
 RESULTS_DUR, CTA_DUR = 5.0, 4.5
 
-HEAD_L = headline_layer()
-NICK_VIDEO = nick_layer(CHAMP, pill=CHOCO)
-SUB_L = {txt: bottom_plaque(txt, f=F_TEXT(46)) for _, _, txt in HOOK_SUBS}
+# the two result screenshots, side by side, for the hook (instead of bare numbers)
+HOOK_FEB = card(RES.crop((70, 4, 362, 176)), width=360)
+HOOK_OCT = card(RES.crop((74, 374, 362, 566)), width=360)
+
+
+def cards_layer(top=SAFE_TOP + 20):
+    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    fa = font("Montserrat.ttf", 64, "Bold")
+    aw = fa.getlength("→") + 16
+    gap = 22
+    total = HOOK_FEB.width + HOOK_OCT.width - 120 + aw + 2 * gap     # cards carry 30 px shadow margins each side
+    x = CX - total / 2 - 30
+    img.alpha_composite(HOOK_FEB, (round(x), top))
+    ay = top + 30 + (HOOK_FEB.height - 60) / 2 - 44
+    x2 = x + HOOK_FEB.width - 30 + gap
+    d = ImageDraw.Draw(img)
+    # arrow on a small chocolate disc so it reads over the footage
+    d.ellipse([x2, ay, x2 + aw, ay + aw], fill=CHOCO + (255,))
+    d.text((x2 + (aw - fa.getlength("→")) / 2, ay + aw / 2 - 44), "→", font=fa, fill=CHAMP + (255,))
+    img.alpha_composite(HOOK_OCT, (round(x2 + aw + gap - 30), top))
+    return img
+
+
+CARDS_L = cards_layer()
+NICK_ON_CHAMP = nick_layer(CHOCO)
+SUB_L = {txt: bottom_plaque(txt, f=F_TEXT(46)) for txt in HOOK_SUBS}
 
 
 def hook_frames():
-    frs = clip_frames(0.0, 3.3, 1.0, 1.03, FACE) + clip_frames(15.3, 18.25, 1.06, 1.09, FACE)
+    frs, bounds = [], []
+    for k, (a, b) in enumerate(HOOK_CLIPS):
+        z = 1.0 + 0.03 * k
+        part = clip_frames(a, b, z, z + 0.03, FACE)
+        bounds.append((len(frs), len(frs) + len(part), HOOK_SUBS[k]))
+        frs += part
     for i, fr in enumerate(frs):
-        t = i / FPS
         fr = fr.convert("RGBA")
-        fr.alpha_composite(HEAD_L)
-        for a, b, txt in HOOK_SUBS:
-            if a <= t < b:
+        l, dy = fade_in(CARDS_L, i / FPS, dur=0.3, rise=20)
+        fr.alpha_composite(l, (0, -dy))
+        for a, b, txt in bounds:
+            if a <= i < b:
                 fr.alpha_composite(SUB_L[txt])
         yield fr
 
 
-def item_frames(clips, z0, z1, center, head, text):
-    total = sum(b - a for a, b in clips)
-    frs, acc = [], 0.0
-    for a, b in clips:          # one continuous zoom across the clips of a scene
-        d = b - a
-        frs += clip_frames(a, b, z0 + (z1 - z0) * acc / total, z0 + (z1 - z0) * (acc + d) / total, center)
-        acc += d
+WIN = (CX - COL_W / 2, SAFE_TOP + 30, COL_W, 860)   # x, y, w, h of the lesson-board "window"
+
+
+def window_shell():
+    """Champagne page with a rounded window frame + chocolate shadow; returns (page, mask)."""
+    x, y, w, h = WIN
+    page = Image.new("RGBA", (W, H), CHAMP + (255,))
+    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    ImageDraw.Draw(sh).rounded_rectangle([x, y + 14, x + w, y + h + 14], radius=30, fill=CHOCO + (80,))
+    page.alpha_composite(sh.filter(ImageFilter.GaussianBlur(16)))
+    m = Image.new("L", (int(w), int(h)), 0)
+    ImageDraw.Draw(m).rounded_rectangle([0, 0, w - 1, h - 1], radius=30, fill=255)
+    return page, m
+
+PAGE, WIN_MASK = window_shell()
+
+
+def broll_frames(name, start, box, dur):
+    """Frames of a lesson screencast (or a still with a slow push-in), cropped to `box`, window-sized."""
+    x, y, w, h = WIN
+    n = int(round(dur * FPS))
+    path = os.path.join(BROLL, name)
+    bx0, by0, bx1, by1 = box
+    if name.endswith((".jpg", ".png")):
+        im = Image.open(path).convert("RGB")
+        for i in range(n):
+            z = 1 + 0.06 * i / max(1, n - 1)
+            cw, ch = (bx1 - bx0) / z, (by1 - by0) / z
+            # fit the window aspect inside the (zoomed) box
+            if cw / ch > w / h: cw = ch * w / h
+            else: ch = cw * h / w
+            cx, cy = (bx0 + bx1) / 2, (by0 + by1) / 2
+            yield im.resize((int(w), int(h)), Image.LANCZOS, box=(cx - cw / 2, cy - ch / 2, cx + cw / 2, cy + ch / 2))
+        return
+    bw, bh = bx1 - bx0, by1 - by0
+    if bw / bh > w / h:
+        nw = bh * w / h; bx0 += (bw - nw) / 2; bw = nw
+    else:
+        nh = bw * h / w; by0 += (bh - nh) / 2; bh = nh
+    p = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", f"{start:.3f}", "-i", path, "-t", f"{dur + 0.2:.3f}",
+                          "-vf", f"fps={FPS},crop={int(bw)}:{int(bh)}:{int(bx0)}:{int(by0)},"
+                                 f"scale={int(w)}:{int(h)}:flags=lanczos",
+                          "-f", "rawvideo", "-pix_fmt", "rgb24", "-"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+    last = None
+    for i in range(n):
+        raw = p.stdout.read(int(w) * int(h) * 3)
+        if len(raw) == int(w) * int(h) * 3:
+            last = Image.frombytes("RGB", (int(w), int(h)), raw)
+        yield last
+    p.stdout.close(); p.wait()
+
+
+def item_frames(name, start, box, head, text, dur):
+    x, y, w, h = WIN
     layer = bottom_plaque(text, head)
-    for i, fr in enumerate(frs):
-        fr = fr.convert("RGBA")
+    for i, win in enumerate(broll_frames(name, start, box, dur)):
+        fr = PAGE.copy()
+        fr.paste(win, (int(x), int(y)), WIN_MASK)
         l, dy = fade_in(layer, i / FPS)
         fr.alpha_composite(l, (0, dy))
-        fr.alpha_composite(NICK_VIDEO)
+        fr.alpha_composite(NICK_ON_CHAMP)
         yield fr
 
 
@@ -356,66 +436,14 @@ def still_frames(fn, dur):
 
 
 def scenes():
-    """(name, duration, frame generator, has original audio clips)"""
-    out = [("hook", 6.25, hook_frames, [(0.0, 3.3), (15.3, 18.25)])]
+    """(name, duration, frame generator, original-audio clips or None)"""
+    hook_dur = sum(int(round((b - a) * FPS)) for a, b in HOOK_CLIPS) / FPS
+    out = [("hook", hook_dur, hook_frames, HOOK_CLIPS)]
     for k, it in enumerate(ITEMS):
-        out.append((f"item{k}", sum(b - a for a, b in it[0]), lambda it=it: item_frames(*it), None))
+        out.append((f"item{k}", it[5], lambda it=it: item_frames(*it), None))
     out.append(("results", RESULTS_DUR, lambda: still_frames(results_frame, RESULTS_DUR), None))
     out.append(("cta", CTA_DUR, lambda: still_frames(cta_frame, CTA_DUR), None))
     return out
-
-
-# ---------------- music ----------------
-def synth_music(dur, sr=AR, bpm=78):
-    """Soft placeholder bed: electric-piano chords + round bass + light shaker (Cmaj7 Am7 Fmaj7 G6)."""
-    rng = np.random.default_rng(7)
-    n = int(dur * sr)
-    out = np.zeros((n, 2), np.float32)
-    beat = 60 / bpm
-    chords = [[48, 60, 64, 67, 71], [45, 57, 60, 64, 67], [41, 57, 60, 64, 69], [43, 55, 59, 62, 64]]
-    hz = lambda m: 440 * 2 ** ((m - 69) / 12)
-
-    def note(t0, length, f, amp, bright=1.0, pan=0.0):
-        i0 = int(t0 * sr)
-        if i0 >= n: return
-        m = min(int(length * sr), n - i0)
-        tt = np.arange(m) / sr
-        env = np.exp(-tt * 2.2) * (1 - np.exp(-tt * 300))
-        env *= np.clip((length - tt) / 0.08, 0, 1)
-        trem = 1 + 0.08 * np.sin(2 * np.pi * 4.5 * tt)
-        x = (np.sin(2 * np.pi * f * tt) + 0.35 * bright * np.sin(4 * np.pi * f * tt) * np.exp(-tt * 6)
-             + 0.12 * bright * np.sin(6 * np.pi * f * tt) * np.exp(-tt * 9)) * env * trem * amp
-        out[i0:i0 + m, 0] += x * (1 - pan); out[i0:i0 + m, 1] += x * (1 + pan)
-
-    bar = 4 * beat
-    t, k = 0.0, 0
-    while t < dur:
-        c = chords[k % 4]
-        for j, m in enumerate(c[1:]):                       # chord on 1, re-voiced on the "and" of 3
-            note(t + j * 0.012, bar, hz(m), 0.07, pan=(j - 1.5) * 0.15)
-            note(t + 2.5 * beat + j * 0.012, 1.5 * beat, hz(m + 12 if j == 3 else m), 0.035, 0.6, (1.5 - j) * 0.15)
-        note(t, 2 * beat, hz(c[0] - 12), 0.16, 0.3)          # bass
-        note(t + 2 * beat, 1.8 * beat, hz(c[0] - 12 + (7 if k % 2 else 0)), 0.12, 0.3)
-        for e in range(8):                                    # shaker on eighths
-            i0 = int((t + e * beat / 2) * sr)
-            m = min(int(0.06 * sr), n - i0)
-            if m <= 0: continue
-            sh = rng.standard_normal(m) * np.exp(-np.arange(m) / sr * 60) * (0.012 if e % 2 else 0.007)
-            out[i0:i0 + m] += np.diff(np.concatenate([[0], sh]))[:, None]
-        t += bar; k += 1
-    f = int(1.0 * sr)
-    out[:f] *= np.linspace(0, 1, f)[:, None]; out[-2 * f:] *= np.linspace(1, 0, 2 * f)[:, None]
-    return out
-
-
-def load_music(dur):
-    mp = os.path.join(HERE, "assets", "music.mp3")
-    if os.path.exists(mp):
-        raw = subprocess.run(["ffmpeg", "-v", "error", "-i", mp, "-t", f"{dur:.3f}", "-ac", "2", "-ar", str(AR),
-                              "-f", "f32le", "-"], capture_output=True, check=True).stdout
-        x = np.frombuffer(raw, np.float32).reshape(-1, 2).copy()
-        return np.pad(x, ((0, max(0, int(dur * AR) - len(x))), (0, 0)))[:int(dur * AR)]
-    return synth_music(dur)
 
 
 def rms_db(x):
@@ -423,27 +451,18 @@ def rms_db(x):
 
 
 def mix(sc):
+    """Only the student's own audio in the hook; the rest is silent (no music)."""
     total = sum(d for _, d, _, _ in sc)
     n = int(round(total * FPS)) * AR // FPS
     voice = np.zeros((n, 2), np.float32)
-    duck = np.ones(n, np.float32)
     t = 0.0
     for _, d, _, clips in sc:
         if clips:
             v = np.concatenate([clip_audio(a, b) for a, b in clips])
             i0 = int(round(t * FPS)) * AR // FPS
             voice[i0:i0 + len(v)] += v[:n - i0]
-            duck[i0:i0 + len(v)] = 0
         t += d
-    # 0 under the voice, 1 elsewhere, with 0.4 s ramps
-    k = int(0.4 * AR)
-    duck = np.convolve(duck, np.ones(k) / k, mode="same").astype(np.float32)
-    v_on = voice[np.abs(voice).max(1) > 1e-4]
-    voice *= 10 ** ((-18 - rms_db(v_on)) / 20)               # student's voice ≈ -18 dBFS RMS
-    music = load_music(total)
-    music *= 10 ** ((-20 - rms_db(music[int(8 * AR):int(30 * AR)])) / 20)
-    music *= (10 ** (-22 / 20) + (1 - 10 ** (-22 / 20)) * duck)[:, None]   # -22 dB under the voice
-    return voice + music, total
+    return voice, total
 
 
 def render():
@@ -486,7 +505,8 @@ def render():
 
 def cover():
     fr = clip_frames(15.6, 15.7, 1.06, 1.06, FACE)[0].convert("RGBA")
-    fr.alpha_composite(headline_layer(size=130, top=330))
+    fr.alpha_composite(headline_layer(size=118, top=SAFE_TOP + 40))
+    fr.alpha_composite(cards_layer(top=SAFE_TOP + 250))
     fr.convert("RGB").save(os.path.join(HERE, "out", "cover.png"))
 
 
