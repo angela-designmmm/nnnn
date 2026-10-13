@@ -16,7 +16,6 @@ SAFE_CX = (SAFE_L + SAFE_R) / 2
 
 F_TITLE = ImageFont.truetype(INTER.format("SemiBold"), 56)
 F_PLAQUE = ImageFont.truetype(INTER.format("Medium"), 54)
-F_FINAL_EN = ImageFont.truetype(INTER.format("Bold"), 56)
 F_SUB = ImageFont.truetype(INTER.format("Bold"), 46)
 F_EMO = ImageFont.truetype(EMOJI, 109)
 
@@ -138,11 +137,8 @@ def subtitle(s, y=1315):
 
 # ---------------- timeline (seconds in the talking-head source) ----------------
 TITLE = "Как я ссу разговаривать с иностранцами со своим C1"
-FINAL = "Тегни своего\ncomfort person 🫶"
 
 SRC_END = 21.2
-FINAL_AT = 18.3
-FREEZE_END = 1.6  # hold last frame under the final card
 
 # Dinosaur reel as a small tilted scrapbook card over the talking head,
 # right after "...lives rent-free in my head".
@@ -155,20 +151,17 @@ CARD_CENTER = (300, 800)             # left side, may cover the face for a momen
 CLIP_GAIN_DB = -16                   # quiet under the voice
 
 OVERLAYS = [  # (kind, start, end, text)
-    ("title", 0, FINAL_AT, TITLE),
+    ("title", 0, 99, TITLE),
     ("plaque", 0.0, 3.8, "Спойлер: не со всеми 👀"),
     ("plaque", 3.8, 7.6, "Иногда находится тот самый комфортик 🥹"),
     ("plaque", 7.6, 11.6, "в лице американского коуча"),
-    ("plaque", 11.6, FINAL_AT, "и вот я уже рассказываю ей, как каждый раз произношу «Dynador» 🙈"),
     ("sub", 0.3, 3.8, "Have you watched that video? The funny one?"),
     ("sub", 8.6, 11.8, "That video [lives rent-free in my head]…"),
     ("sub", 11.8, 15.6, "…and every time I see the word “dinosaur”, I pronounce it like “Dynador”"),
-    ("final", FINAL_AT, 99, None),
 ]
 
 TITLE_TOP = 250
 PLAQUE_TOP = 1060
-FINAL_TOP = 760
 
 cache = {}
 def overlay_img(kind, text, rel_t):
@@ -186,11 +179,6 @@ def overlay_img(kind, text, rel_t):
         key = (kind, text)
         if key not in cache: cache[key] = subtitle(text)
         return cache[key]
-    if kind == "final":
-        if kind not in cache:
-            cache[kind] = plaque(FINAL, F_FINAL_EN, FINAL_TOP, align="center", maxw=820,
-                                 pad=(44, 34), lh=1.32)
-        return cache[kind]
 
 def frames(src, a, b, vf, w, h):
     p = subprocess.Popen(["ffmpeg", "-v", "error", "-ss", str(a), "-i", src, "-t", str(b - a),
@@ -203,7 +191,7 @@ def frames(src, a, b, vf, w, h):
 
 # ---- scrapbook card ----
 CARD_H = round(CARD_W * 16 / 9)
-clip_len = min(FINAL_AT - CLIP_AT, float(subprocess.check_output(
+clip_len = min(SRC_END - CLIP_AT, float(subprocess.check_output(
     ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", CLIP])))
 clip_frames = list(frames(CLIP, 0, clip_len, f"{CLIP_CROP},scale={CARD_W}:{CARD_H}:flags=lanczos,fps={FPS}",
                           CARD_W, CARD_H))
@@ -244,9 +232,6 @@ enc = subprocess.Popen(["ffmpeg", "-v", "error", "-y", "-f", "rawvideo", "-pix_f
 
 def render(fr, t):
     fr = fr.convert("RGBA")
-    if t >= FINAL_AT:  # dim under the final card
-        fade = min(1.0, (t - FINAL_AT) / 0.4)
-        fr = Image.blend(fr, Image.new("RGBA", (W, H), (0, 0, 0, 255)), 0.45 * fade)
     ci = int(round((t - CLIP_AT) * FPS))
     if 0 <= ci < len(clip_frames):
         fr.alpha_composite(card(clip_frames[ci], pop(t - CLIP_AT, len(clip_frames) / FPS)))
@@ -255,11 +240,9 @@ def render(fr, t):
             fr.alpha_composite(overlay_img(ok, txt, t - r0))
     enc.stdin.write(fr.convert("RGB").tobytes())
 
-n, last = 0, None
+n = 0
 for fr in frames(SRC, 0, SRC_END, f"scale={W}:{H}:flags=lanczos,fps={FPS}", W, H):
-    render(fr, n / FPS); last = fr; n += 1
-for _ in range(int(FREEZE_END * FPS)):
-    render(last, n / FPS); n += 1
+    render(fr, n / FPS); n += 1
 enc.stdin.close(); enc.wait()
 total = n / FPS
 
