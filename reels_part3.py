@@ -14,7 +14,7 @@ EMOJI = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
 SAFE_L, SAFE_R = 70, W - 140
 SAFE_CX = (SAFE_L + SAFE_R) / 2
 
-F_TITLE = ImageFont.truetype(INTER.format("SemiBold"), 56)
+F_TITLE = ImageFont.truetype(INTER.format("SemiBold"), 50)
 F_PLAQUE = ImageFont.truetype(INTER.format("Medium"), 54)
 F_SUB = ImageFont.truetype(INTER.format("Bold"), 46)
 F_EMO = ImageFont.truetype(EMOJI, 109)
@@ -136,7 +136,7 @@ def subtitle(s, y=1315):
     return out
 
 # ---------------- timeline (seconds in the talking-head source) ----------------
-TITLE = "Как я ссу разговаривать с иностранцами со своим C1"
+TITLE = "В 99% случаев я ссу\nразговаривать с иностранцами\nдаже со своим C1"
 
 SRC_END = 21.2
 
@@ -147,13 +147,13 @@ CLIP_CROP = "crop=860:1530:13:205"  # drop phone status bar, back arrow, "Add co
 CARD_W = 400                         # video width inside the white border
 CARD_BORDER = 12
 CARD_ANGLE = 7                       # degrees, counter-clockwise
-CARD_CENTER = (300, 800)             # left side, may cover the face for a moment
+CARD_CENTER = (300, 905)             # left side, may cover the face for a moment
 CLIP_GAIN_DB = -16                   # quiet under the voice
 
 OVERLAYS = [  # (kind, start, end, text)
     ("title", 0, 99, TITLE),
-    ("plaque", 0.0, 3.8, "Спойлер: не со всеми 👀"),
-    ("plaque", 3.8, 7.6, "Иногда находится тот самый комфортик 🥹"),
+    ("plaque", 0.0, 3.8, "Но есть тот самый 1% 👀"),
+    ("plaque", 3.8, 7.6, "когда находишь своего комфортика 🥹"),
     ("plaque", 7.6, 11.6, "в лице американского коуча"),
     ("sub", 0.3, 3.8, "Have you watched that video? The funny one?"),
     ("sub", 8.6, 11.8, "That video [lives rent-free in my head]…"),
