@@ -16,7 +16,6 @@ SAFE_CX = (SAFE_L + SAFE_R) / 2
 
 F_TITLE = ImageFont.truetype(INTER.format("SemiBold"), 56)
 F_PLAQUE = ImageFont.truetype(INTER.format("Medium"), 54)
-F_FINAL = ImageFont.truetype(INTER.format("SemiBold"), 52)
 F_FINAL_EN = ImageFont.truetype(INTER.format("Bold"), 56)
 F_SUB = ImageFont.truetype(INTER.format("Bold"), 46)
 F_EMO = ImageFont.truetype(EMOJI, 109)
@@ -139,8 +138,7 @@ def subtitle(s, y=1315):
 
 # ---------------- timeline (seconds in the talking-head source) ----------------
 TITLE = "Как я ссу разговаривать с иностранцами со своим C1"
-FINAL_EN = "Find your comfort person 🫶"
-FINAL_RU = "С правильным человеком\nтвой C1 наконец-то заговорит"
+FINAL = "Тегни своего\ncomfort person 🫶"
 
 SRC_END = 21.2
 FINAL_AT = 18.3
@@ -150,10 +148,10 @@ FREEZE_END = 1.6  # hold last frame under the final card
 # right after "...lives rent-free in my head".
 CLIP_AT = 11.4
 CLIP_CROP = "crop=860:1530:13:205"  # drop phone status bar, back arrow, "Add comment" bar
-CARD_W = 290                         # video width inside the white border
+CARD_W = 400                         # video width inside the white border
 CARD_BORDER = 12
 CARD_ANGLE = 7                       # degrees, counter-clockwise
-CARD_CENTER = (225, 770)             # left side, clear of the title and the plaques
+CARD_CENTER = (300, 800)             # left side, may cover the face for a moment
 CLIP_GAIN_DB = -16                   # quiet under the voice
 
 OVERLAYS = [  # (kind, start, end, text)
@@ -190,12 +188,8 @@ def overlay_img(kind, text, rel_t):
         return cache[key]
     if kind == "final":
         if kind not in cache:
-            ru = wrap(FINAL_RU, F_FINAL, 800)
-            lines = [FINAL_EN] + ru
-            fonts = [F_FINAL_EN] + [F_FINAL] * len(ru)
-            s = "\n".join(lines)
-            cache[kind] = plaque(s, F_FINAL, FINAL_TOP, align="center", pad=(44, 34), lh=1.32,
-                                 full_lines=lines, fonts=fonts)
+            cache[kind] = plaque(FINAL, F_FINAL_EN, FINAL_TOP, align="center", maxw=820,
+                                 pad=(44, 34), lh=1.32)
         return cache[kind]
 
 def frames(src, a, b, vf, w, h):
