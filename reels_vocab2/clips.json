@@ -1,0 +1,40 @@
+{
+ "intro": {
+  "title": "3 фразы, которые носители говорят постоянно",
+  "mark": "3 фразы",
+  "src": "reels_vocab2/source.mp4",
+  "at": 1.0,
+  "dur": 2.0,
+  "crop": [0, 0, 1080, 930],
+  "cy": 0.2
+ },
+ "clips": [
+  {
+   "src": "reels_vocab2/source.mp4",
+   "in": 0.05,
+   "out": 5.0,
+   "en": "as corny as it sounds",
+   "ru": "как бы банально это ни звучало",
+   "crop": [0, 0, 1080, 930],
+   "cy": 0.2
+  },
+  {
+   "src": "reels_vocab2/source.mp4",
+   "in": 5.0,
+   "out": 9.183,
+   "en": "immensely grateful",
+   "ru": "безмерно благодарна",
+   "crop": [0, 0, 1080, 930],
+   "cy": 0.2
+  },
+  {
+   "src": "reels_vocab2/source.mp4",
+   "in": 9.183,
+   "out": 11.3,
+   "en": "crave simple things",
+   "ru": "стремиться к простым радостям",
+   "crop": [0, 0, 1080, 815],
+   "cy": 0.2
+  }
+ ]
+}

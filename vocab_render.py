@@ -5,6 +5,8 @@ Usage:  python3 vocab_render.py clips.json out.mp4
 clips.json: [{"src": "v1.mov", "in": 12.3, "out": 16.9, "en": "as corny as it sounds",
               "ru": "как бы банально это ни звучало", "zoom": 1.0, "cx": 0.5, "cy": 0.4}, ...]
 zoom/cx/cy are optional: extra zoom into the top video and the focus point (0..1) of the crop.
+"crop": [x, y, w, h] (optional) cuts that region out of the source first, e.g. to drop
+burned-in UI or an old layout when remaking a finished vertical video.
 With an intro card the file is an object instead:
   {"intro": {"title": "3 фразы, ...", "mark": "3 фразы", "src": "v1.mov", "at": 0.5, "dur": 2.0},
    "clips": [...]}
@@ -150,6 +152,13 @@ def title_card(base, title, mark=""):
     return img
 
 
+def pre(c):
+    """Optional source-pixel crop applied before fitting into the top area."""
+    if "crop" not in c: return ""
+    x, y, w, h = c["crop"]
+    return f"crop={w}:{h}:{x}:{y},"
+
+
 def render(clips, out, tmp):
     base = paper()
     os.makedirs(tmp, exist_ok=True)
@@ -167,7 +176,7 @@ def render(clips, out, tmp):
                    "-loop", "1", "-t", f"{d:.3f}", "-r", str(FPS), "-i", png,
                    "-f", "lavfi", "-t", f"{d:.3f}", "-i", "anullsrc=r=48000:cl=stereo"]
         filt.append(
-            f"[0:v]trim=end_frame=1,setpts=PTS-STARTPTS,loop=loop={int(d * FPS)}:size=1,fps={FPS},"
+            f"[0:v]trim=end_frame=1,setpts=PTS-STARTPTS,loop=loop={int(d * FPS)}:size=1,fps={FPS},{pre(intro)}"
             f"scale={int(W * z)}:{int(VID_H * z)}:force_original_aspect_ratio=increase:flags=lanczos,"
             f"scale='trunc(iw*(1+0.06*t/{d})/2)*2':'trunc(ih*(1+0.06*t/{d})/2)*2':eval=frame,"
             f"crop={W}:{VID_H}:(iw-{W})*{cx}:(ih-{VID_H})*{cy},setsar=1[ti];"
@@ -184,7 +193,7 @@ def render(clips, out, tmp):
                    "-loop", "1", "-t", f"{d:.3f}", "-r", str(FPS), "-i", png]
         vw, vh = int(W * z), int(VID_H * z)
         filt.append(
-            f"[{n0+2*i}:v]fps={FPS},scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=lanczos,"
+            f"[{n0+2*i}:v]fps={FPS},{pre(c)}scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=lanczos,"
             f"crop={W}:{VID_H}:(iw-{W})*{cx}:(ih-{VID_H})*{cy},setsar=1[t{i}];"
             f"[{n0+2*i+1}:v][t{i}]overlay=0:0:shortest=1,format=yuv420p,setsar=1[v{i}];"
             f"[{n0+2*i}:a]aresample=48000,aformat=channel_layouts=stereo,"
