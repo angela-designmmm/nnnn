@@ -1,7 +1,11 @@
-"""Fluffy cat in a sombrero dancing to dancing_cat_music.py (120 BPM, 16 s loop).
+"""Plush cat in a sombrero dancing to dancing_cat_music.py (120 BPM, 16 s loop).
 
-Usage: python3 dancing_cat_render.py out_dir
-Writes RGBA frames straight into ffmpeg and produces:
+Usage:
+  python3 dancing_cat_render.py out_dir              full set of videos with music
+  python3 dancing_cat_render.py out_dir --no-music   just the character, preview mp4s
+  PREVIEW=0.5,4.7 python3 dancing_cat_render.py dir  still frames at those times
+
+Full set:
   cat_cream.mp4        on the light slide colour, with music
   cat_brown.mp4        on the dark slide colour, with music
   cat_transparent.mov  ProRes 4444 with alpha, 720x720, with music (Keynote / PowerPoint for Mac)
@@ -10,7 +14,7 @@ Writes RGBA frames straight into ffmpeg and produces:
 """
 import math, os, subprocess, sys
 import numpy as np
-from PIL import Image, ImageDraw, ImageFilter, ImageChops
+from PIL import Image, ImageDraw, ImageFilter
 
 import dancing_cat_music as music
 
@@ -25,13 +29,9 @@ FRAMES = int(round(LENGTH * FPS))
 CREAM_BG = (250, 222, 161)
 BROWN_BG = (67, 33, 21)
 
-FUR_LIGHT = np.array([252, 232, 202], float)
-FUR_BASE = np.array([236, 196, 146], float)
-FUR_DARK = np.array([170, 118, 74], float)
+GROUND = (C // 2, int(C * 0.95))
 
-GROUND = (C // 2, int(C * 0.945))
-
-# ---------------------------------------------------------------- helpers
+# ---------------------------------------------------------------- math helpers
 
 def T(x, y):
     return np.array([[1, 0, x], [0, 1, y], [0, 0, 1]], float)
@@ -44,10 +44,39 @@ def R(deg):
 def S(sx, sy):
     return np.array([[sx, 0, 0], [0, sy, 0], [0, 0, 1]], float)
 
+def smooth(x):
+    x = min(1.0, max(0.0, x))
+    return x * x * (3 - 2 * x)
+
+def smoothstep(e0, e1, x):
+    t = np.clip((x - e0) / (e1 - e0), 0, 1)
+    return t * t * (3 - 2 * t)
+
+def lerp(a, b, t):
+    return a + (b - a) * t
+
+def box(a, r, axis):
+    if r < 1:
+        return a
+    pad = [(0, 0)] * a.ndim
+    pad[axis] = (r + 1, r)
+    c = np.cumsum(np.pad(a, pad, mode="edge"), axis=axis, dtype=np.float64)
+    n = a.shape[axis]
+    hi = np.take(c, np.arange(2 * r + 1, 2 * r + 1 + n), axis=axis)
+    lo = np.take(c, np.arange(0, n), axis=axis)
+    return ((hi - lo) / (2 * r + 1)).astype(np.float32)
+
+def blur(a, sigma):
+    """Float gaussian-ish blur: three box passes per axis."""
+    r = max(1, int(round(sigma * 0.9)))
+    for _ in range(3):
+        a = box(a, r, 0)
+        a = box(a, r, 1)
+    return a
+
 def place(canvas, sprite, M):
     """Composite sprite onto canvas using sprite->canvas affine M."""
     inv = np.linalg.inv(M)
-    # bounding box of the sprite on the canvas, to keep transforms small
     w, h = sprite.size
     pts = M @ np.array([[0, w, w, 0], [0, 0, h, h], [1, 1, 1, 1]], float)
     x0 = max(0, int(math.floor(pts[0].min())) - 2)
@@ -61,357 +90,444 @@ def place(canvas, sprite, M):
     piece = sprite.transform((x1 - x0, y1 - y0), Image.AFFINE, data, resample=Image.BICUBIC)
     canvas.alpha_composite(piece, (x0, y0))
 
-def smooth(x):
-    x = min(1.0, max(0.0, x))
-    return x * x * (3 - 2 * x)
+# ---------------------------------------------------------------- plush shading
 
-def lerp(a, b, t):
-    return a + (b - a) * t
+RAMP = [
+    (0.00, (138, 84, 54)),
+    (0.35, (190, 132, 90)),
+    (0.62, (222, 174, 126)),
+    (0.85, (238, 199, 154)),
+    (1.00, (248, 222, 186)),
+]
 
-# ---------------------------------------------------------------- fur
+def ramp(v):
+    out = np.zeros(v.shape + (3,), np.float32)
+    for (a, ca), (b, cb) in zip(RAMP, RAMP[1:]):
+        t = np.clip((v - a) / (b - a), 0, 1)[..., None]
+        sel = (v >= a)[..., None]
+        out = np.where(sel, np.array(ca) + (np.array(cb) - np.array(ca)) * t, out)
+    return out
 
-def fur(mask, seed, strokes=7000, length=26, light_mask=None, shade_bias=0.0,
-        light_dir=(-0.45, -0.9)):
-    """Turn an L-mode silhouette into a soft, shaded, fluffy RGBA sprite."""
+def mask_from(size, ellipses, fillet=34):
+    """Smooth union of ellipses -> float mask with soft anti-aliased edge."""
+    w, h = size
+    m = Image.new("L", (w, h), 0)
+    d = ImageDraw.Draw(m)
+    for cx, cy, rx, ry in ellipses:
+        d.ellipse((cx - rx, cy - ry, cx + rx, cy + ry), fill=255)
+    a = np.asarray(m, np.float32) / 255
+    if fillet:
+        a = smoothstep(0.42, 0.58, blur(a, fillet))
+    return a
+
+def plush(mask, seed, light=None, fuzz=9000, fuzz_len=(6, 22), strength=820, bias=0.0):
+    """Shade a float mask like a short-haired plush toy and give it a fuzzy edge."""
     rnd = np.random.default_rng(seed)
-    m = np.asarray(mask, float) / 255
-    h, w = m.shape
-    big = np.asarray(mask.filter(ImageFilter.GaussianBlur(70)), float) / 255
-    gy, gx = np.gradient(big)
-    lx, ly = light_dir
-    shade = 0.2 + 0.85 * big - 45 * (gx * lx + gy * ly) + shade_bias
-    ys = np.linspace(0, 1, h)[:, None]
-    shade = shade - 0.22 * ys
-    shade = np.clip(shade, 0, 1.25)
-    col = np.where(
-        (shade < 0.75)[..., None],
-        FUR_DARK + (FUR_BASE - FUR_DARK) * (shade / 0.75)[..., None],
-        FUR_BASE + (FUR_LIGHT - FUR_BASE) * np.clip((shade - 0.75) / 0.5, 0, 1)[..., None],
-    )
-    if light_mask is not None:
-        lm = np.asarray(light_mask.filter(ImageFilter.GaussianBlur(25)), float)[..., None] / 255
-        col = col + (FUR_LIGHT - col) * lm * 0.6
+    h, w = mask.shape
+    hm = 0.08 * blur(mask, 14) + 0.27 * blur(mask, 45) + 0.35 * blur(mask, 95) + 0.3 * blur(mask, 180)
+    hm = np.power(np.clip(hm, 0, 1), 0.7)
+    gy, gx = np.gradient(hm)
+    nx, ny, nz = -gx * strength, -gy * strength, np.ones_like(hm)
+    nl = np.sqrt(nx * nx + ny * ny + nz * nz)
+    nx, ny, nz = nx / nl, ny / nl, nz / nl
+    L = np.array([-0.45, -0.62, 0.64])
+    L /= np.linalg.norm(L)
+    ndl = nx * L[0] + ny * L[1] + nz * L[2]
+    diff = np.clip((ndl + 0.42) / 1.42, 0, 1) + bias
+    # under-side occlusion (belly bottom, under the chin)
+    diff -= 0.12 * np.clip(ny, 0, 1)
+    col = ramp(np.clip(diff, 0, 1))
+    if light is not None:
+        lm = blur(light, 22)[..., None]
+        col = col + (np.array([250, 230, 200]) - col) * lm * 0.38
+    # soft back-lit rim: fur catching light at the silhouette
+    rim = np.power(np.clip(1 - nz, 0, 1), 1.6)[..., None]
+    col = col + rim * np.array([40, 34, 28]) * 0.3
+
+    # velvet texture: fine streaks flowing down + soft clumps
+    n = rnd.standard_normal((h, w)).astype(np.float32)
+    fine = box(box(n, 7, 0), 1, 1)
+    fine /= fine.std() + 1e-6
+    clump = blur(rnd.standard_normal((h, w)).astype(np.float32), 4)
+    clump /= clump.std() + 1e-6
+    col = col * (1 + 0.016 * fine + 0.012 * clump)[..., None]
     col = np.clip(col, 0, 255)
 
-    pad = length * 2
-    W, H = w + 2 * pad, h + 2 * pad
-    base_a = np.asarray(mask.filter(ImageFilter.GaussianBlur(3)), float)
-    base = np.zeros((H, W, 4), np.uint8)
-    base[pad:pad + h, pad:pad + w, :3] = col.astype(np.uint8)
-    base[pad:pad + h, pad:pad + w, 3] = base_a.astype(np.uint8)
-    img = Image.fromarray(base, "RGBA")
+    alpha = smoothstep(0.3, 0.7, blur(mask, 1.5))
+    img = Image.fromarray(np.dstack([col, alpha * 255]).astype(np.uint8), "RGBA")
 
-    edge = np.asarray(mask.filter(ImageFilter.GaussianBlur(14)), float) / 255
-    ey, ex = np.gradient(edge)
-    inside = np.argwhere(m > 0.5)
-    if len(inside) == 0:
-        return img, pad
-    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    pick = inside[rnd.integers(0, len(inside), strokes)]
-    order = np.argsort(edge[pick[:, 0], pick[:, 1]])[::-1]  # interior first, edge last
-    for y, x in pick[order]:
-        nx, ny = -ex[y, x], -ey[y, x]
-        nl = math.hypot(nx, ny)
-        e = edge[y, x]
-        if nl < 1e-4:
-            ang = math.pi / 2 + rnd.normal(0, 0.6)
-            nx, ny = math.cos(ang), math.sin(ang)
-        else:
-            nx, ny = nx / nl, ny / nl
-            ang = math.atan2(ny, nx) + rnd.normal(0, 0.35)
-            # interior strands droop downward a little
-            down = math.atan2(1, 0)
-            ang = lerp(down, ang, min(1, 0.35 + 1.3 * (1 - e)))
-            nx, ny = math.cos(ang), math.sin(ang)
-        ln = length * (0.5 + 1.2 * (1 - e)) * rnd.uniform(0.6, 1.3)
-        c = col[y, x] * (rnd.uniform(0.86, 1.1) if e < 0.6 else rnd.uniform(0.95, 1.05))
-        al = rnd.uniform(50, 120) if e > 0.85 else rnd.uniform(150, 230)
-        c = tuple(int(v) for v in np.clip(c, 0, 255)) + (int(al),)
-        x0, y0 = x + pad, y + pad
-        # slightly curved, tapering tuft
-        mx, my = x0 + nx * ln * 0.5 - ny * ln * 0.12, y0 + ny * ln * 0.5 + nx * ln * 0.12
-        wd = int(rnd.integers(4, 8))
-        d.line([(x0, y0), (mx, my)], fill=c, width=wd)
-        d.line([(mx, my), (x0 + nx * ln, y0 + ny * ln)], fill=c, width=max(2, wd - 3))
-    layer = layer.filter(ImageFilter.GaussianBlur(1.8))
-    img.alpha_composite(layer)
-    return img, pad
+    # fuzz: thin hairs crossing the silhouette
+    eb = blur(mask, 10)
+    ey, ex = np.gradient(eb)
+    band = np.argwhere(((mask > 0.25) & (mask < 0.95)) | ((eb > 0.35) & (eb < 0.75)))
+    if len(band) and fuzz:
+        layer = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+        dr = ImageDraw.Draw(layer)
+        for y, x in band[rnd.integers(0, len(band), fuzz)]:
+            ox, oy = -ex[y, x], -ey[y, x]
+            ol = math.hypot(ox, oy)
+            if ol < 1e-5:
+                continue
+            ox, oy = ox / ol, oy / ol + 0.3
+            a = math.atan2(oy, ox) + rnd.normal(0, 0.28)
+            ln = rnd.uniform(*fuzz_len)
+            back = rnd.uniform(0, ln * 0.6)
+            x0, y0 = x - math.cos(a) * back, y - math.sin(a) * back
+            x1, y1 = x0 + math.cos(a) * ln, y0 + math.sin(a) * ln
+            c = col[min(h - 1, max(0, int(y0))), min(w - 1, max(0, int(x0)))] * rnd.uniform(0.9, 1.03)
+            c = tuple(int(v) for v in np.clip(c, 0, 255)) + (int(rnd.uniform(45, 150)),)
+            dr.line([(x0, y0), (x1, y1)], fill=c, width=int(rnd.integers(1, 3)))
+        img.alpha_composite(layer.filter(ImageFilter.GaussianBlur(0.9)))
+    return img
 
-def ellipse_mask(size, boxes):
-    m = Image.new("L", size, 0)
-    d = ImageDraw.Draw(m)
-    for b in boxes:
-        d.ellipse(b, fill=255)
-    return m
+# ---------------------------------------------------------------- body sprite
 
-# ---------------------------------------------------------------- sprites
+# body sprite: local origin = ground centre, y up is negative
+BW, BH = 1100, 1560
+BOX, BOY = BW // 2, 1500
+
+EYE_Y = -872
+EYE_X = 142
+NOSE_Y = -792
+
+def lp(x, y):
+    """local body coords -> body sprite pixel"""
+    return x + BOX, y + BOY
 
 def make_body():
-    w, h = 700, 760
-    m = ellipse_mask((w, h), [(40, 40, 660, 740), (70, 260, 630, 750)])
-    belly = ellipse_mask((w, h), [(190, 260, 510, 700)])
-    img, pad = fur(m, 1, strokes=6500, light_mask=belly)
-    # anchor: bottom-centre of the body ellipse
-    return img, (pad + 350, pad + 740)
+    shapes = [
+        (0, -370, 372, 370),     # belly
+        (0, -250, 398, 250),     # pear bottom
+        (0, -640, 320, 210),     # chest
+        (0, -935, 352, 330),     # head
+        (-250, -830, 180, 160),  # cheeks
+        (250, -830, 180, 160),
+    ]
+    m = mask_from((BW, BH), [(x + BOX, y + BOY, rx, ry) for x, y, rx, ry in shapes], fillet=64)
+    light = mask_from((BW, BH), [
+        (BOX - 64, BOY - 772, 96, 72), (BOX + 64, BOY - 772, 96, 72), (BOX, BOY - 745, 112, 80),
+        (BOX, BOY - 400, 240, 280),
+    ], fillet=0)
+    light[BOY - 560:] *= 0.4
+    img = plush(m, 11, light=light, fuzz=24000)
+
+    # chin cord from under the brim down to a small wooden pendant
+    d = ImageDraw.Draw(img)
+    for side in (-1, 1):
+        pts = []
+        for i in range(41):
+            t = i / 40
+            x = lerp(side * 318, 0, t) + side * 26 * math.sin(math.pi * t)
+            y = lerp(-1010, -610, t) + 50 * math.sin(math.pi * t * 0.9)
+            pts.append(lp(x, y))
+        d.line(pts, fill=(150, 108, 70, 230), width=4, joint="curve")
+    px, py = lp(0, -598)
+    d.ellipse((px - 12, py - 4, px + 12, py + 32), fill=(176, 126, 74), outline=(118, 80, 46), width=3)
+    d.ellipse((px - 5, py + 4, px + 1, py + 12), fill=(222, 180, 120))
+    return img
 
 def make_arm():
-    w, h = 220, 380
-    m = ellipse_mask((w, h), [(40, 10, 180, 300), (25, 220, 195, 370)])
-    img, pad = fur(m, 2, strokes=1800, length=20, shade_bias=0.1)
-    # little toe lines on the paw
-    d = ImageDraw.Draw(img)
-    for dx in (-30, 0, 30):
-        x = pad + 110 + dx
-        d.line([(x, pad + 330), (x, pad + 360)], fill=(176, 130, 88, 170), width=5)
-    return img, (pad + 110, pad + 50)
+    w, h = 240, 460
+    m = mask_from((w, h), [(120, 100, 66, 72), (120, 210, 58, 112), (120, 340, 64, 66)], fillet=18)
+    img = plush(m, 12, fuzz=3000, fuzz_len=(5, 16), strength=320, bias=0.04)
+    return img, (120, 92)
 
 def make_foot():
-    w, h = 240, 150
-    m = ellipse_mask((w, h), [(15, 15, 225, 140)])
-    img, pad = fur(m, 3, strokes=900, length=16, shade_bias=0.05)
-    return img, (pad + 120, pad + 120)
+    w, h = 260, 180
+    m = mask_from((w, h), [(130, 96, 98, 58)], fillet=10)
+    img = plush(m, 13, fuzz=1400, fuzz_len=(4, 12), strength=260, bias=0.06)
+    return img, (130, 140)
 
-HEAD_W, HEAD_H = 1000, 900
+# ---------------------------------------------------------------- hat sprite
 
-def make_head():
-    w, h = HEAD_W, HEAD_H
-    m = ellipse_mask((w, h), [
-        (70, 60, 930, 840),        # skull
-        (30, 360, 400, 800),       # left cheek fluff
-        (600, 360, 970, 800),      # right cheek fluff
-        (250, 520, 750, 880),      # chin
-    ])
-    muzzle = ellipse_mask((w, h), [(330, 520, 520, 720), (480, 520, 670, 720), (380, 640, 620, 820)])
-    img, pad = fur(m, 4, strokes=11000, length=30, light_mask=muzzle)
-    return img, pad
+HW, HH = 1320, 900
+HCX, HCY = 660, 600   # brim centre
 
 def make_hat():
-    w, h = 1400, 760
-    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    cx = w // 2
-    straw = (222, 176, 102)
-    straw_dk = (176, 128, 64)
-    straw_lt = (240, 205, 140)
-    red, teal, navy, yel, cream = (196, 62, 48), (34, 136, 132), (44, 52, 96), (238, 186, 52), (250, 236, 206)
+    ys, xs = np.mgrid[0:HH, 0:HW].astype(np.float32)
+    x = xs - HCX
+    y = ys - HCY
+    a, b = 530.0, 150.0
+    droop = 70 * np.power(np.abs(x) / a, 3)
+    yy = y - droop
+    r = np.sqrt((x / a) ** 2 + (yy / b) ** 2)
+    r_lip = np.sqrt((x / a) ** 2 + ((yy - 30) / b) ** 2)
+    phi = np.arctan2(yy / b, x / a)
 
-    # brim underside (front lip)
-    d.ellipse((40, 400, w - 40, 730), fill=straw_dk)
-    # brim top
-    d.ellipse((40, 380, w - 40, 700), fill=straw)
-    # patterned rim: concentric ring with zigzag
-    ring = Image.new("L", (w, h), 0)
-    rd = ImageDraw.Draw(ring)
-    rd.ellipse((40, 380, w - 40, 700), fill=255)
-    rd.ellipse((110, 410, w - 110, 670), fill=0)
-    pat = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    pd = ImageDraw.Draw(pat)
-    pd.rectangle((0, 0, w, h), fill=red)
-    for i in range(0, w, 46):
-        pd.polygon([(i, 0), (i + 23, 0), (i + 46, h)], fill=teal)
-    for i in range(0, w, 46):
-        pd.polygon([(i + 23, h), (i + 46, h), (i + 23, 0)], fill=yel)
-    pat.putalpha(ring)
-    img.alpha_composite(pat)
-    d = ImageDraw.Draw(img)
-    d.ellipse((40, 380, w - 40, 700), outline=navy, width=8)
-    d.ellipse((110, 410, w - 110, 670), outline=cream, width=6)
-    # straw weave on brim
-    for k in range(1, 6):
-        inset = 110 + k * 50
-        d.ellipse((inset, 410 + k * 18, w - inset, 670 - k * 14), outline=straw_dk + (110,), width=3)
-    # crown: tall rounded cone, shaded left to right
-    crown = Image.new("L", (w, h), 0)
-    cd = ImageDraw.Draw(crown)
-    cd.polygon([(cx - 290, 570), (cx - 165, 170), (cx + 165, 170), (cx + 290, 570)], fill=255)
-    cd.ellipse((cx - 175, 50, cx + 175, 300), fill=255)
-    cd.ellipse((cx - 292, 500, cx + 292, 620), fill=255)
-    xs = np.linspace(-1, 1, w)[None, :]
-    grad = np.clip(1.0 - 0.28 * (xs + 0.35) ** 2 * 2.2, 0, 1)
-    grad = np.repeat(grad, h, axis=0)
-    cimg = np.zeros((h, w, 4), np.uint8)
-    for k in range(3):
-        cimg[..., k] = np.clip(straw[k] * (0.72 + 0.38 * grad), 0, 255)
-    cimg[..., 3] = np.asarray(crown)
-    img.alpha_composite(Image.fromarray(cimg, "RGBA"))
-    d = ImageDraw.Draw(img)
-    for k in range(7):
-        y = 120 + k * 58
-        half = 175 + (290 - 175) * (y - 130) / 440
-        d.arc((cx - half, y - 40, cx + half, y + 40), 15, 165, fill=straw_dk + (120,), width=3)
-    # crown band with zigzag pattern
-    band = Image.new("L", (w, h), 0)
-    bd = ImageDraw.Draw(band)
-    bd.rectangle((cx - 292, 470, cx + 292, 560), fill=255)
-    bd.ellipse((cx - 292, 520, cx + 292, 610), fill=255)
-    bd.ellipse((cx - 292, 410, cx + 292, 500), fill=0)
-    bpat = Image.new("RGBA", (w, h), navy)
-    bp = ImageDraw.Draw(bpat)
-    for i in range(cx - 300, cx + 300, 40):
-        bp.polygon([(i, 600), (i + 20, 470), (i + 40, 600)], fill=red)
-        bp.polygon([(i + 10, 600), (i + 20, 520), (i + 30, 600)], fill=yel)
-    for i in range(cx - 300, cx + 300, 40):
-        bp.ellipse((i + 14, 478, i + 26, 490), fill=teal)
-    bpat.putalpha(band)
-    img.alpha_composite(bpat)
-    d = ImageDraw.Draw(img)
-    d.arc((cx - 292, 410, cx + 292, 500), 0, 180, fill=cream, width=6)
-    # soft shading on brim edges
-    sh = Image.new("RGBA", (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).ellipse((900, 400, 1380, 720), fill=(90, 50, 20, 60))
-    sh = sh.filter(ImageFilter.GaussianBlur(40))
-    sh.putalpha(ImageChops.multiply(sh.getchannel("A"), img.getchannel("A")))
-    img.alpha_composite(sh)
-    # anchor: centre of the brim
-    return img, (cx, 560)
+    straw = np.array([214, 170, 106], np.float32)
+    weave = 0.055 * np.sin(phi * 150) * np.sin(r * 85) + 0.025 * np.sin(r * 210)
+    shade = 0.95 - 0.09 * (x / a) - 0.12 * np.power(np.abs(x) / a, 3) + 0.05 * (-y / b)
+    col = straw * (shade + weave)[..., None]
 
-def make_shadow():
-    img = Image.new("RGBA", (900, 200), (0, 0, 0, 0))
-    ImageDraw.Draw(img).ellipse((60, 40, 840, 160), fill=(60, 30, 10, 70))
-    return img.filter(ImageFilter.GaussianBlur(22)), (450, 100)
+    # embroidered band on the brim
+    u = (phi / (2 * math.pi)) * 34
+    fu = u - np.floor(u)
+    v = (r - 0.56) / 0.24
+    ring = (v > 0) & (v < 1)
+    dia = np.abs(fu - 0.5) * 2 + np.abs(v - 0.5) * 2
+    pat = np.where((dia < 0.32)[..., None], [226, 176, 76],
+          np.where((dia < 0.72)[..., None], [70, 138, 134], [180, 84, 60]))
+    pat = np.where(((v < 0.13) | (v > 0.87))[..., None], [62, 68, 104], pat)
+    pat = pat * (0.95 + weave * 0.8)[..., None] * shade[..., None]
+    col = np.where(ring[..., None], col * 0.4 + pat * 0.6, col)
+    # stitched rim
+    rim = (r > 0.94) & (r <= 1)
+    stitch = np.where((np.sin(phi * 130) > 0)[..., None], [180, 84, 60], [238, 214, 168])
+    col = np.where(rim[..., None], stitch * shade[..., None], col)
+    # crown shadow on the brim
+    q = np.sqrt(((x - 36) / 250) ** 2 + ((y - 26) / 84) ** 2)
+    col = col * (1 - 0.32 * np.clip(1.35 - q, 0, 0.35) / 0.35)[..., None]
+    # underside lip (front edge thickness)
+    lip = (r > 1) & (r_lip <= 1)
+    col = np.where(lip[..., None], straw * 0.68 * (1 + weave)[..., None], col)
+    alpha = ((r <= 1) | lip).astype(np.float32)
+
+    # crown
+    top, base_y = -330.0, -10.0
+    base_curve = base_y + 46 * np.sqrt(np.clip(1 - (x / 215) ** 2, 0, 1))
+    t = np.clip((y + 190) / (base_y + 190), 0, 1)
+    hw = np.where(y < -190, 165 * np.sqrt(np.clip(1 - ((y + 190) / (top + 190)) ** 2, 0, 1)), 165 + 50 * t)
+    crown = (np.abs(x) <= hw) & (y >= top) & (y <= base_curve)
+    hw = np.maximum(hw, 1)
+    nxc = np.clip(x / hw, -1, 1)
+    cshade = 0.62 + 0.42 * np.sqrt(1 - nxc ** 2) - 0.14 * nxc
+    cweave = 0.05 * np.sin(y * 0.55 + 3 * np.sin(x * 0.02)) * np.sin(np.arcsin(nxc) * 60) + 0.03 * np.sin(y * 0.21)
+    ccol = straw * (cshade + cweave)[..., None]
+    band = crown & (y > base_curve - 74) & (y < base_curve - 6)
+    bu = np.arcsin(nxc) / math.pi * 18
+    bfu = bu - np.floor(bu)
+    bv = (y - (base_curve - 74)) / 68
+    tri = np.abs(bfu - 0.5) * 2 < bv
+    bcol = np.where(tri[..., None], [180, 84, 60], [62, 68, 104])
+    bcol = np.where(((bv > 0.4) & (np.abs(bfu - 0.5) < 0.08))[..., None], [226, 176, 76], bcol)
+    bcol = bcol * (cshade + cweave * 0.6)[..., None]
+    ccol = np.where(band[..., None], bcol, ccol)
+    col = np.where(crown[..., None], ccol, col)
+    alpha = np.maximum(alpha, crown.astype(np.float32))
+
+    alpha = blur(alpha, 1.0)
+    col = np.clip(col, 0, 255)
+    return Image.fromarray(np.dstack([col, alpha * 255]).astype(np.uint8), "RGBA"), (HCX, HCY)
+
+def make_brim_shadow():
+    img = Image.new("RGBA", (1300, 520), (0, 0, 0, 0))
+    ImageDraw.Draw(img).ellipse((120, 150, 1180, 380), fill=(110, 58, 30, 120))
+    return img.filter(ImageFilter.GaussianBlur(34)), (650, 200)
+
+def make_ground_shadow():
+    img = Image.new("RGBA", (1000, 220), (0, 0, 0, 0))
+    ImageDraw.Draw(img).ellipse((90, 50, 910, 170), fill=(60, 30, 10, 75))
+    return img.filter(ImageFilter.GaussianBlur(26)), (500, 110)
 
 # ---------------------------------------------------------------- face
 
-def draw_face(head, pad, p):
-    img = head.copy()
-    d = ImageDraw.Draw(img)
-    ox, oy = pad, pad
-    px = p["look"] * 26
-    for side in (-1, 1):
-        cx = ox + HEAD_W // 2 + side * 170
-        cy = oy + 480
-        ew, eh = 108, 124
-        if p["eyes"] > 0.5:   # happy ^ ^
-            d.arc((cx - 80, cy - 40, cx + 80, cy + 100), 200, 340, fill=(60, 34, 22), width=16)
-            continue
-        open_ = 1 - p["blink"]
-        if open_ < 0.15:
-            d.arc((cx - 85, cy - 70, cx + 85, cy + 40), 20, 160, fill=(60, 34, 22), width=14)
-            continue
-        top = cy - eh * open_
-        d.ellipse((cx - ew - 4, top - 4, cx + ew + 4, cy + eh + 4), fill=(52, 30, 18))
-        d.ellipse((cx - ew, top, cx + ew, cy + eh), fill=(140, 88, 44))
-        d.ellipse((cx - ew + 22, top + 14, cx + ew - 22, cy + eh - 6), fill=(92, 52, 26))
-        pr = 76
-        d.ellipse((cx + px - pr, cy + 10 - pr * open_, cx + px + pr, cy + 10 + pr), fill=(22, 12, 10))
-        # catchlights
-        d.ellipse((cx + px - 62, cy - 62 * open_, cx + px - 8, cy - 8 * open_ + 4), fill=(255, 255, 255))
-        d.ellipse((cx + px + 26, cy + 50, cx + px + 50, cy + 74), fill=(255, 255, 255, 220))
-        # upper lid line + lashes
-        d.arc((cx - ew - 6, top - 6, cx + ew + 6, cy + eh + 6), 200, 340, fill=(48, 26, 16), width=10)
-    # blush
-    bl = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    bd = ImageDraw.Draw(bl)
-    for side in (-1, 1):
-        cx = ox + HEAD_W // 2 + side * 290
-        bd.ellipse((cx - 70, oy + 600, cx + 70, oy + 670), fill=(240, 140, 120, 90))
-    img.alpha_composite(bl.filter(ImageFilter.GaussianBlur(14)))
-    d = ImageDraw.Draw(img)
-    # nose
-    nx, ny = ox + HEAD_W // 2, oy + 615
-    d.polygon([(nx - 30, ny - 16), (nx + 30, ny - 16), (nx, ny + 16)], fill=(214, 120, 112))
-    d.ellipse((nx - 12, ny - 14, nx + 2, ny - 6), fill=(245, 185, 175))
-    # mouth
-    mo = p["mouth"]
-    if mo > 0.1:
-        mh = 18 + 50 * mo
-        d.ellipse((nx - 34, ny + 26, nx + 34, ny + 26 + mh), fill=(120, 44, 40))
-        d.ellipse((nx - 22, ny + 26 + mh * 0.5, nx + 22, ny + 26 + mh - 4), fill=(232, 120, 120))
+def draw_eye(layer, cx, cy, p):
+    d = ImageDraw.Draw(layer)
+    ew, eh = 55, 63
+    if p["happy"] > 0.5:
+        d.arc((cx - 52, cy - 26, cx + 52, cy + 62), 205, 335, fill=(58, 32, 22, 255), width=11)
+        return
+    lid = max(p["lid"], p["blink"])
+    top = cy - eh
+    if lid > 0.88:
+        d.arc((cx - 54, cy - 40, cx + 54, cy + 30), 20, 160, fill=(58, 32, 22, 255), width=10)
+        return
+    eye = Image.new("RGBA", layer.size, (0, 0, 0, 0))
+    e = ImageDraw.Draw(eye)
+    lx = p["look"] * 16
+    e.ellipse((cx - ew, cy - eh, cx + ew, cy + eh), fill=(34, 20, 16))
+    for k in range(10):
+        rr = 46 - k * 2.6
+        c = (int(96 - k * 5), int(58 - k * 3), int(34 - k * 2))
+        e.ellipse((cx + lx - rr, cy + 6 - rr * 1.08, cx + lx + rr, cy + 6 + rr * 1.08), fill=c)
+    e.ellipse((cx + lx - 28, cy + 4 - 30, cx + lx + 28, cy + 4 + 30), fill=(14, 8, 6))
+    e.ellipse((cx + lx - 33, cy - 38, cx + lx - 7, cy - 10), fill=(255, 255, 255))
+    e.ellipse((cx + lx + 12, cy + 20, cx + lx + 22, cy + 30), fill=(255, 255, 255, 210))
+    # keep only the part below the eyelid
+    y_lid = top + lid * eh * 2
+    clip = Image.new("L", layer.size, 0)
+    ImageDraw.Draw(clip).ellipse((cx - ew, cy - eh, cx + ew, cy + eh), fill=255)
+    if lid > 0.02:
+        ImageDraw.Draw(clip).rectangle((0, 0, layer.width, int(y_lid)), fill=0)
+    eye.putalpha(Image.fromarray(np.minimum(np.asarray(eye.getchannel("A")), np.asarray(clip))))
+    layer.alpha_composite(eye)
+    d = ImageDraw.Draw(layer)
+    if lid > 0.02:
+        half = ew * math.sqrt(max(0.05, 1 - ((y_lid - cy) / eh) ** 2))
+        d.line([(cx - half - 4, y_lid + 2), (cx + half + 4, y_lid + 2)], fill=(52, 30, 20, 255), width=7)
     else:
-        d.arc((nx - 46, ny + 4, nx + 2, ny + 44), 20, 160, fill=(110, 60, 42), width=7)
-        d.arc((nx - 2, ny + 4, nx + 46, ny + 44), 20, 160, fill=(110, 60, 42), width=7)
-    # whiskers
+        d.arc((cx - ew - 3, cy - eh - 3, cx + ew + 3, cy + eh + 3), 200, 340, fill=(44, 24, 16, 255), width=7)
+
+def draw_face(body, p):
+    img = body.copy()
+    # soft shading around the eyes and blush
+    soft = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    sd = ImageDraw.Draw(soft)
     for side in (-1, 1):
-        for k, (dy, ang) in enumerate(((0, -8), (22, 2), (44, 12))):
-            x0 = nx + side * 120
-            y0 = ny + 20 + dy
-            x1 = x0 + side * 190
-            y1 = y0 + ang * 2.2
-            d.line([(x0, y0), (x1, y1)], fill=(255, 250, 240, 200), width=4)
-    # hat chin strap with a wooden bead
-    cord = (120, 82, 50)
-    d.line([(ox + 95, oy + 330), (ox + 230, oy + 720), (nx, oy + 820)], fill=cord, width=7, joint="curve")
-    d.line([(ox + HEAD_W - 95, oy + 330), (ox + HEAD_W - 230, oy + 720), (nx, oy + 820)], fill=cord, width=7, joint="curve")
-    d.ellipse((nx - 20, oy + 790, nx + 20, oy + 840), fill=(150, 96, 52), outline=(96, 60, 32), width=4)
+        cx, cy = lp(side * EYE_X, EYE_Y)
+        sd.ellipse((cx - 72, cy - 74, cx + 72, cy + 80), fill=(150, 96, 62, 40))
+        bx, by = lp(side * 228, -790)
+        sd.ellipse((bx - 64, by - 30, bx + 64, by + 30), fill=(238, 140, 118, 70))
+    img.alpha_composite(soft.filter(ImageFilter.GaussianBlur(16)))
+
+    feat = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    for side in (-1, 1):
+        cx, cy = lp(side * EYE_X, EYE_Y)
+        draw_eye(feat, cx, cy, p)
+    d = ImageDraw.Draw(feat)
+    nx, ny = lp(0, NOSE_Y)
+    d.rounded_rectangle((nx - 15, ny - 10, nx + 15, ny + 6), radius=7, fill=(206, 128, 112))
+    d.ellipse((nx - 9, ny - 9, nx - 1, ny - 4), fill=(236, 178, 160))
+    mo = p["mouth"]
+    my = ny + 22
+    if mo > 0.12:
+        mh = 14 + 38 * mo
+        mw = 26 + 6 * mo
+        rad = int(min(mw, mh) * 0.9)
+        d.rounded_rectangle((nx - mw, my, nx + mw, my + mh), radius=rad, fill=(92, 36, 32))
+        d.ellipse((nx - mw * 0.65, my + mh * 0.48, nx + mw * 0.65, my + mh + 4), fill=(222, 112, 112))
+        d.rounded_rectangle((nx - mw, my, nx + mw, my + mh), radius=rad, outline=(92, 36, 32), width=4)
+    else:
+        d.arc((nx - 30, my - 18, nx + 2, my + 10), 15, 165, fill=(118, 66, 52), width=5)
+        d.arc((nx - 2, my - 18, nx + 30, my + 10), 15, 165, fill=(118, 66, 52), width=5)
+    img.alpha_composite(feat.filter(ImageFilter.GaussianBlur(0.9)))
     return img
 
 # ---------------------------------------------------------------- dance
 
-def pose(t):
-    """Dance parameters at time t (seconds), synced to the beat."""
-    b = t / BEAT                      # beat position
+def section(k, b):
+    ph = b % 1
+    bounce = 0.5 - 0.5 * math.cos(2 * math.pi * ph)     # 0 on the beat, 1 between
+    sq = math.cos(2 * math.pi * ph)                     # +1 squashed on the beat
+    sway = math.sin(math.pi * b / 2)
+    wig = math.sin(math.pi * b)
+    q = dict(x=0, y=0, sq=0, bend=0, head=0, armL=15, armR=-15, footL=0, footR=0,
+             look=0, lid=0, happy=0, mouth=0.15, blink=0)
+    if k in (0, 1):      # easy sway, arms swinging, eyes follow
+        q.update(x=40 * sway, y=-26 * bounce, sq=0.045 * sq, bend=70 * sway, head=7 * sway,
+                 armL=22 + 20 * sway, armR=-22 + 20 * sway,
+                 footL=22 * bounce * max(0, sway), footR=22 * bounce * max(0, -sway),
+                 look=0.9 * sway, mouth=0.15)
+    elif k in (2, 3):    # paws at the chest, pumping
+        q.update(x=18 * sway, y=-40 * bounce, sq=0.06 * sq, bend=-34 * wig, head=-7 * wig,
+                 armL=-58 + 14 * wig, armR=58 + 14 * wig,
+                 footL=30 * bounce * max(0, wig), footR=30 * bounce * max(0, -wig),
+                 look=-0.45 * wig, mouth=0.3 + 0.5 * bounce)
+    elif k in (4, 5):    # arms out, flapping, happy eyes
+        q.update(x=32 * wig, y=-30 * bounce, sq=0.05 * sq, bend=58 * wig, head=-9 * wig,
+                 armL=96 + 26 * wig, armR=-96 + 26 * wig,
+                 footL=28 * bounce * max(0, -wig), footR=28 * bounce * max(0, wig),
+                 happy=1, mouth=0.7)
+    elif k == 6:         # little hops, hands up
+        q.update(y=-85 * bounce, sq=0.085 * sq, bend=22 * wig, head=5 * wig,
+                 armL=160 + 12 * wig, armR=-160 + 12 * wig,
+                 footL=36 * bounce, footR=36 * bounce, mouth=0.35 + 0.6 * bounce)
+    else:                # sleepy groove with half-closed eyes, side glance
+        q.update(x=14 * sway, y=-16 * bounce, sq=0.04 * sq, bend=42 * sway,
+                 head=9 * math.sin(math.pi * b), armL=16 + 10 * wig, armR=-16 + 10 * wig,
+                 footL=14 * bounce * max(0, wig), footR=14 * bounce * max(0, -wig),
+                 lid=0.55, look=0.7, mouth=0.18)
+    return q
+
+def raw_pose(t):
+    b = (t % LENGTH) / BEAT
     bar = int(b // 4) % 8
-    ph = b % 1                        # phase inside beat
-    hop = math.sin(math.pi * ph) ** 2   # 0 on the beat, up between beats... invert below
-    bounce = 1 - abs(math.cos(math.pi * ph))  # peak mid-beat
-    land = math.exp(-ph * 8)                  # squash right on the beat
-    sway = math.sin(math.pi * b / 2)          # one side per 2 beats
-    wig = math.sin(math.pi * b)               # one side per beat
-
-    p = dict(x=0, y=0, squash=0, body=0, head=0, hat=0, armL=18, armR=-18,
-             footL=0, footR=0, eyes=0, blink=0, look=0, mouth=0)
-
-    def section(k):
-        q = dict(p)
-        if k in (0, 1):      # sway + gentle arm swing
-            q.update(x=70 * sway, y=-38 * bounce, squash=0.07 * land, body=-6 * sway,
-                     head=9 * sway, armL=25 + 20 * sway, armR=-25 + 20 * sway,
-                     footL=max(0, sway) * 30 * bounce, footR=max(0, -sway) * 30 * bounce,
-                     look=sway * 0.8, mouth=0.0)
-        elif k in (2, 3):    # paws up in front, pumping
-            q.update(x=30 * sway, y=-55 * bounce, squash=0.1 * land, body=-3 * wig,
-                     head=-7 * wig, armL=150 + 25 * wig, armR=-150 + 25 * wig,
-                     footL=max(0, wig) * 40 * bounce, footR=max(0, -wig) * 40 * bounce,
-                     look=-wig * 0.6, mouth=0.6 * bounce)
-        elif k in (4, 5):    # hip wiggle, arms out, happy eyes
-            q.update(x=45 * wig, y=-30 * bounce, squash=0.08 * land, body=10 * wig,
-                     head=-12 * wig, armL=75 - 25 * wig, armR=-75 - 25 * wig,
-                     footL=max(0, -wig) * 35 * bounce, footR=max(0, wig) * 35 * bounce,
-                     eyes=1, mouth=0.8)
-        elif k == 6:         # hands up, jumping
-            q.update(x=0, y=-110 * bounce, squash=0.14 * land, body=0,
-                     head=6 * wig, armL=165 + 12 * wig, armR=-165 + 12 * wig,
-                     footL=50 * bounce, footR=50 * bounce, mouth=1.0 * bounce + 0.3,
-                     look=0)
-        else:                # head bob + side glance (like the original)
-            q.update(x=25 * sway, y=-22 * bounce, squash=0.06 * land, body=-4 * sway,
-                     head=14 * math.sin(2 * math.pi * b), armL=35 + 12 * wig, armR=-35 + 12 * wig,
-                     footL=max(0, wig) * 20 * bounce, footR=max(0, -wig) * 20 * bounce,
-                     look=1.0 if (b % 4) < 2 else -1.0, mouth=0.2)
-        return q
-
-    cur = section(bar)
-    # blend into the next section over the last half beat of a bar
+    cur = section(bar, b)
     into = (b % 4) - 3.5
     if into > 0:
-        nxt = section((bar + 1) % 8)
+        nxt = section((bar + 1) % 8, b)
         k = smooth(into / 0.5)
         cur = {key: lerp(cur[key], nxt[key], k) for key in cur}
-    # hat lags behind the head
-    cur["hat"] = -0.6 * cur["head"] * 0.4 + 4 * math.sin(math.pi * b + 0.8)
-    # blinks at fixed times (skip happy-eye section)
-    for bt in (2.6, 9.4, 13.2, 25.5, 30.3):
+    for bt in (2.6, 9.4, 13.2, 25.5):
         dt = abs(b - bt)
-        if dt < 0.18:
-            cur["blink"] = max(cur["blink"], 1 - dt / 0.18)
+        if dt < 0.2:
+            cur["blink"] = max(cur["blink"], 1 - dt / 0.2)
     return cur
+
+def pose(t):
+    p = raw_pose(t)
+    lag = raw_pose(t - 0.09)
+    lag2 = raw_pose(t - 0.16)
+    # secondary motion: hat and arms trail the body a little
+    p["hat_rot"] = 0.55 * (lag["head"] - p["head"]) + 0.12 * (lag["bend"] - p["bend"])
+    p["hat_dy"] = 0.35 * (lag2["y"] - p["y"])
+    p["arm_lag"] = 0.25 * (lag["x"] - p["x"]) + 0.2 * (lag["bend"] - p["bend"])
+    return p
+
+# ---------------------------------------------------------------- body warp
+
+HEAD_PIVOT = -660.0
+BODY_H = 1270.0
+
+def head_weight(y):
+    return smoothstep(-540.0, -790.0, y)
+
+def fwd(qx, qy, p):
+    """body-local point -> canvas point (matches the inverse warp in warp_body)."""
+    th = math.radians(p["head"]) * float(head_weight(np.float32(qy)))
+    dx, dy = qx, qy - HEAD_PIVOT
+    x1 = dx * math.cos(th) - dy * math.sin(th)
+    y1 = dx * math.sin(th) + dy * math.cos(th) + HEAD_PIVOT
+    x2 = x1 + p["bend"] * max(0.0, min(1.0, -y1 / BODY_H)) ** 1.6
+    sx, sy = 1 + 0.75 * p["sq"], 1 - p["sq"]
+    return GROUND[0] + p["x"] + x2 * sx, GROUND[1] + p["y"] + y1 * sy
+
+def local_angle(qx, qy, p, eps=20.0):
+    ax, ay = fwd(qx, qy - eps, p)
+    bx, by = fwd(qx, qy + eps, p)
+    return math.degrees(math.atan2(-(bx - ax), by - ay))
+
+def warp_body(src, p, bbox):
+    """Inverse-map canvas pixels in bbox back into the body sprite (bilinear)."""
+    x0, y0, x1, y1 = bbox
+    ys, xs = np.mgrid[y0:y1, x0:x1].astype(np.float32)
+    sx, sy = 1 + 0.75 * p["sq"], 1 - p["sq"]
+    px = (xs - GROUND[0] - p["x"]) / sx
+    py = (ys - GROUND[1] - p["y"]) / sy
+    px = px - p["bend"] * np.power(np.clip(-py / BODY_H, 0, 1), 1.6)
+    th = np.radians(p["head"]) * head_weight(py)
+    dx, dy = px, py - HEAD_PIVOT
+    c, s = np.cos(-th), np.sin(-th)
+    qx = dx * c - dy * s
+    qy = dx * s + dy * c + HEAD_PIVOT
+    u = qx + BOX
+    v = qy + BOY
+    h, w = src.shape[:2]
+    u0 = np.floor(u).astype(np.int32)
+    v0 = np.floor(v).astype(np.int32)
+    fu = (u - u0)[..., None]
+    fv = (v - v0)[..., None]
+    valid = ((u0 >= 0) & (u0 < w - 1) & (v0 >= 0) & (v0 < h - 1))[..., None]
+    u0 = np.clip(u0, 0, w - 2)
+    v0 = np.clip(v0, 0, h - 2)
+    a = src[v0, u0] * (1 - fu) + src[v0, u0 + 1] * fu
+    bb = src[v0 + 1, u0] * (1 - fu) + src[v0 + 1, u0 + 1] * fu
+    out = (a * (1 - fv) + bb * fv) * valid
+    alpha = out[..., 3:4]
+    rgb = np.where(alpha > 1e-3, out[..., :3] / np.maximum(alpha, 1e-3), 0)
+    return np.dstack([np.clip(rgb, 0, 255), np.clip(alpha * 255, 0, 255)]).astype(np.uint8)
+
+def premul(img):
+    a = np.asarray(img, np.float32)
+    al = a[..., 3:4] / 255
+    return np.dstack([a[..., :3] * al, al])
 
 # ---------------------------------------------------------------- frame
 
 def build_sprites():
-    body, body_a = make_body()
     arm, arm_a = make_arm()
-    arm_l = arm
-    arm_r = arm.transpose(Image.FLIP_LEFT_RIGHT)
-    arm_r_a = (arm.width - arm_a[0], arm_a[1])
-    foot, foot_a = make_foot()
-    head, head_pad = make_head()
-    hat, hat_a = make_hat()
-    shadow, shadow_a = make_shadow()
-    return dict(body=(body, body_a), arm_l=(arm_l, arm_a), arm_r=(arm_r, arm_r_a),
-                foot=(foot, foot_a), head=(head, head_pad), hat=(hat, hat_a),
-                shadow=(shadow, shadow_a))
+    ash = Image.new("RGBA", arm.size, (112, 62, 34, 0))
+    ash.putalpha(arm.getchannel("A").point(lambda v: int(v * 0.42)).filter(ImageFilter.GaussianBlur(14)))
+    return dict(
+        arm_shadow=ash,
+        body=make_body(),
+        arm_l=(arm, arm_a),
+        arm_r=(arm.transpose(Image.FLIP_LEFT_RIGHT), (arm.width - arm_a[0], arm_a[1])),
+        foot=make_foot(),
+        hat=make_hat(),
+        brim_shadow=make_brim_shadow(),
+        shadow=make_ground_shadow(),
+    )
 
 def at(anchor):
     return T(-anchor[0], -anchor[1])
@@ -420,85 +536,109 @@ def frame(sp, t):
     p = pose(t)
     cv = Image.new("RGBA", (C, C), (0, 0, 0, 0))
     gx, gy = GROUND
-    sq = p["squash"]
-    root = T(gx + p["x"], gy) @ S(1 + sq, 1 - sq)
-    lift = T(0, p["y"])
 
-    # shadow shrinks as the cat rises
     sh, sha = sp["shadow"]
-    k = 1 + p["y"] / 400
+    k = 1 + p["y"] / 420
     place(cv, sh, T(gx + p["x"] * 0.8, gy) @ S(k, k) @ at(sha))
 
-    # feet (stay near the ground, lift alternately)
     ft, fta = sp["foot"]
+    sx, sy = 1 + 0.75 * p["sq"], 1 - p["sq"]
     for side, key in ((-1, "footL"), (1, "footR")):
-        M = root @ T(side * 165, -p[key] + p["y"] * 0.25) @ R(-side * p[key] * 0.25) @ at(fta)
+        M = T(gx + p["x"] * 0.9 + side * 150 * sx, gy - p[key] + p["y"] * 0.2) @ R(-side * p[key] * 0.3) @ at(fta)
         place(cv, ft, M)
 
-    torso = root @ lift @ R(p["body"])
-    bd, bda = sp["body"]
-    place(cv, bd, torso @ T(0, -40) @ at(bda))
+    body = draw_face(sp["body"], p)
+    bbox = (max(0, int(gx + p["x"] - 760)), max(0, int(gy + p["y"] - 1560)), min(C, int(gx + p["x"] + 760)), C)
+    warped = warp_body(premul(body), p, bbox)
+    layer = Image.new("RGBA", (C, C), (0, 0, 0, 0))
+    layer.paste(Image.fromarray(warped, "RGBA"), bbox[:2])
 
-    neck = torso @ T(0, -650)
-    headM = neck @ R(p["head"]) @ T(0, -330)       # head centre
-    hd, hpad = sp["head"]
-    face = draw_face(hd, hpad, p)
-    place(cv, face, headM @ T(-(hpad + HEAD_W / 2), -(hpad + HEAD_H / 2)))
+    # hat transform (follows the warped head)
+    hx, hy = fwd(0, -1150, p)
+    hang = local_angle(0, -1050, p) + p["hat_rot"]
+    hatM = T(hx, hy + p["hat_dy"]) @ R(hang) @ S(0.95 + 0.4 * p["sq"], 0.95 - 0.5 * p["sq"])
 
-    hatM = headM @ T(0, -215) @ R(p["hat"]) @ S(0.92, 0.92)
-    ht, hta = sp["hat"]
-    place(cv, ht, hatM @ at(hta))
-
-    # arms in front, pivot at the shoulders
+    # brim shadow only on the fur
+    bsl = Image.new("RGBA", (C, C), (0, 0, 0, 0))
+    bs, bsa = sp["brim_shadow"]
+    place(bsl, bs, hatM @ T(0, 100) @ S(0.88, 0.9) @ at(bsa))
+    arm_ms = []
     for side, key, name in ((-1, "armL", "arm_l"), (1, "armR", "arm_r")):
-        img, a = sp[name]
-        M = torso @ T(side * 255, -560) @ R(p[key]) @ at(a)
+        img, a_ = sp[name]
+        ax, ay = fwd(side * 300, -600, p)
+        ang = local_angle(side * 300, -600, p) + p[key] + side * p["arm_lag"] * 0.15
+        M = T(ax, ay) @ R(ang) @ S(sx, sy) @ at(a_)
+        arm_ms.append((img, M))
+        place(bsl, sp["arm_shadow"], T(10, 16) @ M)
+    a = np.asarray(bsl.getchannel("A"), np.float32) * np.asarray(layer.getchannel("A"), np.float32) / 255
+    bsl.putalpha(Image.fromarray(a.astype(np.uint8)))
+    layer.alpha_composite(bsl)
+    cv.alpha_composite(layer)
+
+    for img, M in arm_ms:
         place(cv, img, M)
 
+    ht, hta = sp["hat"]
+    place(cv, ht, hatM @ at(hta))
     return cv.resize((OUT, OUT), Image.LANCZOS)
 
 # ---------------------------------------------------------------- main
 
-def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else "dancing_cat"
-    os.makedirs(out, exist_ok=True)
-    wav = os.path.join(out, "_music.wav")
-    music.save(wav, music.render())
+def encode_master(sp, path, wav=None, frames=FRAMES):
+    cmd = ["ffmpeg", "-v", "error", "-y",
+           "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{OUT}x{OUT}", "-r", str(FPS), "-i", "-"]
+    if wav:
+        cmd += ["-i", wav]
+    cmd += ["-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-qscale:v", "9"]
+    if wav:
+        cmd += ["-c:a", "aac", "-b:a", "192k", "-shortest"]
+    enc = subprocess.Popen(cmd + [path], stdin=subprocess.PIPE)
+    for i in range(frames):
+        enc.stdin.write(frame(sp, i / FPS).tobytes())
+        if i % 60 == 0:
+            print(f"frame {i}/{frames}", flush=True)
+    enc.stdin.close()
+    enc.wait()
 
+def on_colour(master, col, path, audio=True):
+    hexc = "0x%02x%02x%02x" % col
+    cmd = ["ffmpeg", "-v", "error", "-y", "-i", master,
+           "-f", "lavfi", "-i", f"color=c={hexc}:s={OUT}x{OUT}:r={FPS}",
+           "-filter_complex", "[1][0:v]overlay=shortest=1,format=yuv420p[v]", "-map", "[v]",
+           "-c:v", "libx264", "-crf", "18", "-preset", "slow", "-movflags", "+faststart"]
+    cmd += ["-map", "0:a", "-c:a", "copy"] if audio else ["-an"]
+    subprocess.run(cmd + [path], check=True)
+
+def main():
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    out = args[0] if args else "dancing_cat"
+    os.makedirs(out, exist_ok=True)
     sp = build_sprites()
+
     if os.environ.get("PREVIEW"):
         ts = [float(x) for x in os.environ["PREVIEW"].split(",")]
         for i, t in enumerate(ts):
             f = frame(sp, t)
-            bg = Image.new("RGBA", f.size, CREAM_BG + (255,))
-            bg.alpha_composite(f)
-            bg.convert("RGB").save(os.path.join(out, f"_preview_{i}.png"))
+            for name, col in (("cream", CREAM_BG), ("brown", BROWN_BG)):
+                bg = Image.new("RGBA", f.size, col + (255,))
+                bg.alpha_composite(f)
+                bg.convert("RGB").save(os.path.join(out, f"_preview_{name}_{i}.png"))
         return
 
-    master = os.path.join(out, "_master.mov")
-    enc = subprocess.Popen([
-        "ffmpeg", "-v", "error", "-y",
-        "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{OUT}x{OUT}", "-r", str(FPS), "-i", "-",
-        "-i", wav,
-        "-c:v", "prores_ks", "-profile:v", "4444", "-pix_fmt", "yuva444p10le", "-qscale:v", "9",
-        "-c:a", "aac", "-b:a", "192k", "-shortest", master,
-    ], stdin=subprocess.PIPE)
-    for i in range(FRAMES):
-        enc.stdin.write(frame(sp, i / FPS).tobytes())
-        if i % 60 == 0:
-            print(f"frame {i}/{FRAMES}", flush=True)
-    enc.stdin.close()
-    enc.wait()
+    if "--no-music" in sys.argv:
+        master = os.path.join(out, "_master.mov")
+        encode_master(sp, master)
+        on_colour(master, CREAM_BG, os.path.join(out, "character_cream.mp4"), audio=False)
+        on_colour(master, BROWN_BG, os.path.join(out, "character_brown.mp4"), audio=False)
+        os.remove(master)
+        return
 
-    for name, col in (("cat_cream.mp4", CREAM_BG), ("cat_brown.mp4", BROWN_BG)):
-        hexc = "0x%02x%02x%02x" % col
-        subprocess.run([
-            "ffmpeg", "-v", "error", "-y", "-i", master,
-            "-f", "lavfi", "-i", f"color=c={hexc}:s={OUT}x{OUT}:r={FPS}",
-            "-filter_complex", "[1][0:v]overlay=shortest=1,format=yuv420p[v]", "-map", "[v]",
-            "-c:v", "libx264", "-crf", "18", "-preset", "slow", "-movflags", "+faststart",
-            "-map", "0:a", "-c:a", "copy", os.path.join(out, name),
-        ], check=True)
+    wav = os.path.join(out, "_music.wav")
+    music.save(wav, music.render())
+    master = os.path.join(out, "_master.mov")
+    encode_master(sp, master, wav)
+    on_colour(master, CREAM_BG, os.path.join(out, "cat_cream.mp4"))
+    on_colour(master, BROWN_BG, os.path.join(out, "cat_brown.mp4"))
     subprocess.run([
         "ffmpeg", "-v", "error", "-y", "-i", master,
         "-c:v", "libvpx-vp9", "-pix_fmt", "yuva420p", "-b:v", "0", "-crf", "30", "-row-mt", "1",
